@@ -1,0 +1,1 @@
+Native Omarchy controls in `native/` are copied from basecamp/omarchy and remain under their original MIT license in `native/LICENSE`. Speech models and Python/system dependencies are obtained separately and retain their own licenses. No speech models, speaker recordings, credentials or user settings are included.

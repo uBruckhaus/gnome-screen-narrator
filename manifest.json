@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "id": "ubruckhaus.simple-reader",
+  "name": "Simple Reader",
+  "version": "0.3.0",
+  "author": "Uwe Bruckhaus",
+  "license": "MIT",
+  "description": "Read visible text aloud from the Omarchy bar. Local OCR, Kokoro voices, Kindle page controls and optional online speech.",
+  "kinds": [
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Simple Reader",
+    "category": "Accessibility",
+    "defaultSection": "right",
+    "allowMultiple": false
+  },
+  "homepage": "https://github.com/uBruckhaus/omarchy-simple-reader",
+  "repository": "https://github.com/uBruckhaus/omarchy-simple-reader",
+  "keywords": [
+    "accessibility",
+    "ocr",
+    "tts",
+    "kindle",
+    "quickshell"
+  ]
+}

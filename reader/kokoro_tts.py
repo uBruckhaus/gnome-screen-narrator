@@ -1,0 +1,82 @@
+#!/usr/bin/env python3
+"""Kindle Reader Kokoro-82M TTS Wrapper."""
+import argparse
+import os
+import sys
+from pathlib import Path
+
+# Add Kokoro directory to sys.path for tts_normalizer and german_text_rules
+KOKORO_DIR = Path.home() / '.local/share/kindle-reader/kokoro'
+if str(KOKORO_DIR) not in sys.path:
+    sys.path.insert(0, str(KOKORO_DIR))
+
+import numpy as np
+import soundfile as sf
+from kokoro_onnx import Kokoro
+
+# Cache Kokoro model instances across warm calls if needed, or instantiate per-call
+_MODELS = {}
+
+def get_kokoro(voice: str):
+    if voice == 'martin':
+        model_path = str(KOKORO_DIR / 'kokoro-martin.onnx')
+        voices_path = str(KOKORO_DIR / 'voices-martin.npz')
+    else:
+        model_path = str(KOKORO_DIR / 'kokoro-v1.0.onnx')
+        voices_path = str(KOKORO_DIR / 'voices-v1.0.bin')
+
+    key = (model_path, voices_path)
+    if key not in _MODELS:
+        _MODELS[key] = Kokoro(model_path, voices_path)
+    return _MODELS[key]
+
+def main():
+    parser = argparse.ArgumentParser(description="Generate speech using Kokoro-82M ONNX")
+    parser.add_argument("-i", "--input", help="Path to text input file")
+    parser.add_argument("-p", "--prompt", help="Direct text to speak")
+    parser.add_argument("-o", "--output", required=True, help="Path to output WAV file")
+    parser.add_argument("-m", "-v", "--voice", default="martin", help="Voice name (e.g. martin, af_heart, af_nicole, am_adam)")
+    parser.add_argument("-s", "--speed", type=float, default=1.0, help="Speech speed multiplier (0.5 to 2.0)")
+    parser.add_argument("-l", "--lang", default="de", help="Language code (e.g. de, en-us, en-gb)")
+    args = parser.parse_args()
+
+    if args.input:
+        text = Path(args.input).read_text(encoding="utf-8").strip()
+    elif args.prompt:
+        text = args.prompt.strip()
+    else:
+        text = sys.stdin.read().strip()
+
+    if not text:
+        sys.exit(0)
+
+    voice = args.voice
+    lang = "en-us" if args.lang == "en" else args.lang
+
+    # Normalize German text if reading in German with Martin
+    if voice == 'martin' or lang.startswith('de'):
+        try:
+            import tts_normalizer
+            text = tts_normalizer.normalize_text(text)
+        except Exception:
+            pass
+
+    # Ensure speed is clamped within valid ONNX range
+    speed = max(0.5, min(2.0, float(args.speed)))
+
+    kokoro = get_kokoro(voice)
+    try:
+        samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang=lang)
+    except Exception as e:
+        # Fallback to en-us if requested language phonemizer encounters an issue
+        if lang != "en-us" and "No phonemes" in str(e):
+            samples, sample_rate = kokoro.create(text, voice=voice, speed=speed, lang="en-us")
+        else:
+            raise
+
+    out_path = Path(args.output)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sf.write(str(out_path), samples, sample_rate)
+
+if __name__ == "__main__":
+    main()
