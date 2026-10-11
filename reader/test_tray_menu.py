@@ -99,14 +99,24 @@ class ReadinessTests(unittest.TestCase):
         self.assertEqual([c['label'] for c in checks], ['Voice · German', 'Text recognition · German', 'Audio output'])
 
     def test_each_problem_is_named(self):
-        self.assertIn('No German voice', self.run_checks(self.subject(), voice_ok=False)[0]['problem'])
-        self.assertIn('Text recognition data for German', self.run_checks(self.subject(), ocr={'eng'})[1]['problem'])
+        self.assertIn('no German voice', self.run_checks(self.subject(), voice_ok=False)[0]['problem'])
+        self.assertIn('Text recognition for German', self.run_checks(self.subject(), ocr={'eng'})[1]['problem'])
         self.assertIn('not connected', self.run_checks(self.subject(audio_output='pulse/gone'))[2]['problem'])
 
     def test_failed_checks_offer_fixes(self):
-        checks = self.run_checks(self.subject(audio_output='pulse/gone'), voice_ok=False)
-        self.assertEqual(checks[0]['fixes'], [dict(label='Open provider setup', panel='providers')])
-        self.assertEqual(checks[2]['fixes'], [dict(label='Use system default output', settings=dict(audio_output='auto'))])
+        checks = self.run_checks(self.subject(audio_output='pulse/gone'), voice_ok=False, ocr={'eng'})
+        # The first fix does the job in place: install the voice / OCR data for that language.
+        self.assertEqual(checks[0]['fixes'][0], dict(label='Install German voice (about 340 MB)', command='setup', args=dict(language='de')))
+        self.assertEqual(checks[1]['fixes'][0]['args'], dict(language='de', backend_only=True))
+        self.assertEqual(checks[2]['fixes'], [dict(label='Use the system default output', settings=dict(audio_output='auto'))])
+
+    def test_installed_voice_is_selected_automatically(self):
+        subject = self.subject(voice='kokoro-heart')
+        subject.save = Mock()
+        with patch('reader.available_voices', return_value={'thorsten-fast': ('Thorsten', 'piper', 'x'), 'kokoro-martin': ('Martin', 'kokoro', 'martin')}):
+            Reader.auto_configure(subject)
+        self.assertEqual(subject.settings['voice'], 'kokoro-martin')
+        subject.save.assert_called_once()
         self.assertTrue(all(c['fixes'] == [] for c in self.run_checks(self.subject())))
 
     def test_start_is_refused_with_the_reason(self):

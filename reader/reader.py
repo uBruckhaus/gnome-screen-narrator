@@ -144,6 +144,13 @@ def recent_notices(seconds=120):
     return [n for n in NOTICES if n['time'] >= cutoff]
 
 
+def install_size(code):
+    """Rough download size for the guided voice install of a language."""
+    if code in KOKORO:
+        return 'about 340 MB' + (' plus a 270 MB dictionary' if code == 'ja' else '')
+    return 'about ' + str(PIPER[code][4]) + ' MB' if code in PIPER else 'download'
+
+
 def desktop_notify(summary, body='', icon=None, timeout=None, level='info'):
     """Send every notification through one sanitized notify-send call."""
     if level in ('warning', 'error'):
@@ -500,6 +507,7 @@ class Reader(QObject):
         self.clients = set()
         self.server.listen(str(RUNTIME / 'control.sock'))
 
+        self.auto_configure()
         self.update()
         # Launch & Bind discovers shortcut actions through this standard tray
         # menu, including when the reader's controls live in the bar widget.
@@ -521,28 +529,45 @@ class Reader(QObject):
         temp.replace(CONFIG)
 
     def readiness_checks(self):
-        """What must be in place before reading can start, shown in the popup."""
+        """What must be in place before reading can start. Each failed check names one
+        primary fix the popup can run directly (first entry in `fixes`), plus alternatives:
+        {label, command, args} runs a reader/setup command, {label, settings} applies
+        settings, {label, panel} opens a popup page."""
         checks = []
-        # Each failed check may offer fixes: {label, panel} opens a popup page, {label, settings} applies settings.
         def check(ok, label, problem, fixes=()):
             checks.append(dict(ok=bool(ok), label=label, problem='' if ok else problem, fixes=[] if ok else list(fixes)))
-        providers = dict(label='Open provider setup', panel='providers')
-        spoken = languages.name(self.voice_language())
+        providers = dict(label='Choose another voice or provider…', panel='providers')
+        code = self.voice_language()
+        spoken = languages.name(code)
         if self.settings.get('provider', 'Local') == 'Online':
             check(self.settings.get('online_model') and self.settings.get('online_voice'), 'Speech server',
-                  'Choose a speech model and voice under Add / manage speech providers.', [providers])
+                  'The speech server needs a model and a voice.',
+                  [dict(label='Finish speech server setup…', panel='providers')])
         else:
             voice_ok = voice_is_available(self.settings['voice'], self.settings) and \
-                self.settings['voice'] in available_voices(self.voice_language(), self.settings)
-            check(voice_ok, 'Voice · ' + spoken, 'No ' + spoken + ' voice selected or installed. Use Add / manage speech providers.', [providers])
-        ocr = languages.ocr_language(self.settings['language'])
-        check(ocr in ocr_languages(), 'Text recognition · ' + languages.name(self.settings['language']),
-              'Text recognition data for ' + languages.name(self.settings['language']) + ' is missing. Run setup for this language.', [providers])
+                self.settings['voice'] in available_voices(code, self.settings)
+            check(voice_ok, 'Voice · ' + spoken, 'There is no ' + spoken + ' voice yet.',
+                  [dict(label='Install ' + spoken + ' voice (' + install_size(code) + ')', command='setup',
+                        args=dict(language=code)), providers])
+        text_code = self.settings['language']
+        check(languages.ocr_language(text_code) in ocr_languages(), 'Text recognition · ' + languages.name(text_code),
+              'Text recognition for ' + languages.name(text_code) + ' is not installed yet.',
+              [dict(label='Install ' + languages.name(text_code) + ' text recognition', command='setup',
+                    args=dict(language=text_code, backend_only=True))])
         check(self.settings.get('audio_output', 'auto') in {o['value'] for o in outputs()}, 'Audio output',
-              'The selected audio output is not connected. Choose another output.',
-              [dict(label='Use system default output', settings=dict(audio_output='auto'))])
+              'The selected speakers or headphones are not connected.',
+              [dict(label='Use the system default output', settings=dict(audio_output='auto'))])
         checks.extend(self.extra_checks())
         return checks
+
+    def auto_configure(self):
+        """Fix what needs no decision: select an installed voice for the spoken language."""
+        if self.settings.get('provider', 'Local') != 'Local':
+            return
+        choices = available_voices(self.voice_language(), self.settings)
+        if choices and self.settings['voice'] not in choices:
+            self.settings['voice'] = next((k for k, v in choices.items() if v[1] == 'kokoro'), next(iter(choices)))
+            self.save()
 
     def extra_checks(self):
         return []
@@ -1445,6 +1470,7 @@ class Reader(QObject):
             self.online_token = ''
             self.online_models = []
         self.settings = next_settings
+        self.auto_configure()
         self.verified_provider = None
         if not self.settings['highlight']:
             self.overlay.close()
@@ -1541,6 +1567,7 @@ class Reader(QObject):
                 self.provider_status = err.strip()[-500:] or 'Kokoro installation failed. Retry when your network is available.'
                 return
             self.provider_status = 'Kokoro installed for ' + languages.name(language)
+            self.auto_configure()
         self.install_task = Task(self, [sys.executable, Path(__file__).with_name('install_kokoro.py'),
                                         '--language', language, '--progress', progress], done, timeout=1800)
 

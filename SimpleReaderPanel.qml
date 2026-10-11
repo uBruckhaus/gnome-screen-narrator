@@ -160,7 +160,17 @@ Ui.Panel {
     content.forceActiveFocus()
     return true
   }
+  // The single next step shown when reading cannot start yet.
+  property bool showMoreFixes: false
+  readonly property var failedChecks: (state.checks || []).filter(function(c) { return !c.ok })
+  readonly property var setupStep: ({problem: "Screen Narrator needs a one-time setup: the reader, text recognition and a " + languageInfo(installLanguage).label.split(" · ")[0] + " voice.",
+                                     fixes: [{label: "Set up now", command: "setup", args: {language: installLanguage}}]})
+  readonly property var nextStep: loaded && !backendReady && !setupBusy ? setupStep : (failedChecks.length ? failedChecks[0] : null)
+  onNextStepChanged: showMoreFixes = false
+  readonly property bool installBusy: setupBusy || state.installing_kokoro === true || state.installing_translator === true
+  readonly property string installMessage: setupBusy ? (state.setup_message || "Setting up…") : (state.provider_status || state.translation_status || "Installing…")
   function applyFix(fix) {
+    if (fix.command) { request(Object.assign({command: fix.command}, fix.args || {})); return }
     if (fix.panel === "providers") manageProvider(activeEngine)
     else if (fix.settings) request({command: "configure", settings: fix.settings})
   }
@@ -306,24 +316,34 @@ Ui.Panel {
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: root.state.paused ? "▶  Resume" : "❚❚  Pause"; bordered: true; enabled: root.enabledReader; onClicked: root.request({command: "pause"}) }
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "■  Stop"; tooltipText: "Stop reading (or right-click the bar icon)"; bordered: true; selected: root.enabledReader; enabled: root.enabledReader; onClicked: root.request({command: "off"}) }
             }
-            Column {
-              width: parent.width; spacing: Style.space(2); visible: !root.enabledReader && (root.state.checks || []).length > 0
-              Repeater {
-                model: root.state.checks || []
-                Column {
-              required property var modelData
-              width: parent.width; spacing: Style.space(4)
-              Text { width: parent.width; text: (modelData.ok ? "✓  " : "✗  ") + modelData.label + (modelData.ok ? "" : " — " + modelData.problem); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: modelData.ok ? Color.foreground : Theme.Color.accent; opacity: modelData.ok ? 0.75 : 1; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-              Flow {
-                width: parent.width; spacing: Style.spacing.md; visible: (modelData.fixes || []).length > 0
-                Repeater {
-                  model: modelData.fixes || []
-                  Ui.Button { required property var modelData; focusable: true; bordered: true; text: modelData.label; fontSize: Style.font.caption; onClicked: root.applyFix(modelData) }
+            Rectangle {
+              id: nextStepCard
+              width: parent.width
+              visible: !root.enabledReader && (root.nextStep !== null || root.installBusy)
+              height: visible ? nextStepColumn.implicitHeight + Style.space(20) : 0
+              radius: Style.cornerRadius
+              color: Qt.rgba(Theme.Color.accent.r, Theme.Color.accent.g, Theme.Color.accent.b, 0.10)
+              border.color: Theme.Color.accent
+              Column {
+                id: nextStepColumn
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(10)
+                spacing: Style.spacing.md
+                Text { width: parent.width; text: root.installBusy ? "Installing…" : "Not ready yet" + (root.failedChecks.length > 1 ? " · step 1 of " + root.failedChecks.length : ""); color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
+                Text { width: parent.width; text: root.installBusy ? root.installMessage : (root.nextStep ? root.nextStep.problem : ""); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                Ui.Button { focusable: true; width: parent.width; visible: !root.installBusy && root.nextStep !== null; selected: true; bordered: true; text: root.nextStep && root.nextStep.fixes.length ? root.nextStep.fixes[0].label : ""; onClicked: root.applyFix(root.nextStep.fixes[0]) }
+                Ui.Button { focusable: true; visible: root.installBusy && root.setupBusy; enabled: root.state.setup_phase !== "packages"; bordered: true; text: "Cancel"; onClicked: root.request({command: "cancel-setup"}) }
+                Text { visible: !root.installBusy && root.nextStep !== null && root.nextStep.fixes.length > 1; text: root.showMoreFixes ? "▾ Other options" : "▸ Other options"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showMoreFixes = !root.showMoreFixes } }
+                Flow {
+                  width: parent.width; spacing: Style.spacing.md; visible: root.showMoreFixes && !root.installBusy && root.nextStep !== null
+                  Repeater {
+                    model: root.nextStep ? root.nextStep.fixes.slice(1) : []
+                    Ui.Button { required property var modelData; focusable: true; bordered: true; text: modelData.label; fontSize: Style.font.caption; onClicked: root.applyFix(modelData) }
+                  }
                 }
               }
             }
-              }
-            }
+            Text { width: parent.width; visible: !root.enabledReader && root.nextStep === null && !root.installBusy && root.state.can_start === true; text: "✓ Ready. Focus the window you want to read, then press ▶ Start."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
             Text { width: parent.width; text: "Status: " + (root.message === "Off" ? "not reading" : root.message); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
             Ui.Dropdown { id: activeProviderPicker; width: parent.width; label: "Speech provider"; options: root.providerOptions(); value: root.activeEngine; enabled: !root.enabledReader && !root.setupBusy; onChanged: { root.manageProvider(value); activeProviderPicker.value = Qt.binding(function() { return root.activeEngine }) } }
             Ui.Dropdown { width: parent.width; label: "Voice / speaker"; visible: root.activeEngine !== "Online"; options: root.activeVoices; value: root.config.voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; onChanged: root.request({command: "configure", settings: {provider: "Local", voice: value}}) }
@@ -337,10 +357,6 @@ Ui.Panel {
             Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; width: parent.width; id: textLanguagePicker; label: "Text language"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; options: root.languageOptions; value: root.config.language || "en"; onChanged: { root.set("language", value); textLanguagePicker.value = Qt.binding(function() { return root.config.language || "en" }) } }
             Ui.NumberField { label: "Reading speed (%)"; enabled: root.backendReady && !root.setupBusy; from: 60; to: 200; stepSize: 5; value: Math.round((root.config.speed || 1) * 100); onModified: root.set("speed", value / 100) }
             Ui.Button { focusable: true; width: parent.width; text: "Add / manage speech providers…"; bordered: true; enabled: !root.enabledReader && !root.setupBusy; onClicked: root.showProviders ? root.showProviders = false : root.manageProvider(root.activeEngine) }
-            Text { width: parent.width; visible: !root.backendReady || !root.voiceReady; text: "Set up a speech provider before reading."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-            Ui.Button { focusable: true; width: parent.width; visible: (!root.backendReady || !root.voiceReady) && !root.showProviders; text: "Set up speech provider…"; bordered: true; enabled: !root.setupBusy; onClicked: root.manageProvider(root.activeEngine) }
-            Text { width: parent.width; visible: root.setupBusy; text: root.state.setup_message || "Setting up…"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-            Ui.Button { focusable: true; text: "Cancel setup"; visible: root.setupBusy; enabled: root.state.setup_phase !== "packages"; onClicked: root.request({command: "cancel-setup"}) }
             Flow {
               width: parent.width
               spacing: Style.spacing.md
