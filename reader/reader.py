@@ -119,7 +119,7 @@ def plain_text(text, limit=300):
     return re.sub(r'[<>&\x00-\x1f\x7f]+', ' ', str(text)).strip()[:limit]
 
 
-def notify(summary, body='', icon=None, timeout=None):
+def desktop_notify(summary, body='', icon=None, timeout=None):
     """Send every notification through one sanitized notify-send call."""
     args = ['notify-send', '-a', 'Screen Narrator']
     if icon:
@@ -566,7 +566,7 @@ class Reader(QObject):
         if message != self.last_error:
             # Qt tray messages set NeedsAttention and a themed attention icon.
             # The desktop shell crashed loading that icon after a Piper error.
-            notify('Screen Narrator', message)
+            desktop_notify('Screen Narrator', message)
         self.last_error = message
         if getattr(self, 'testing_voice', False):
             self.set_enabled(False)
@@ -630,7 +630,7 @@ class Reader(QObject):
         self.update('Looking for text…' if self.enabled else 'Off')
         if notify or was != self.enabled:
             msg = 'Screen Narrator: ON' if self.enabled else 'Screen Narrator: OFF'
-            notify(msg, icon='audio-headphones', timeout=1500)
+            desktop_notify(msg, icon='audio-headphones', timeout=1500)
         if self.enabled:
             self.timer.start()
             QTimer.singleShot(350, self.scan)
@@ -689,7 +689,7 @@ class Reader(QObject):
     def select_area(self):
         self.stop_speech()
         self.update('Select reading area with mouse…')
-        notify('Screen Narrator', 'Drag a box around the reading area with your mouse (Esc to cancel)',
+        desktop_notify('Screen Narrator', 'Drag a box around the reading area with your mouse (Esc to cancel)',
                icon='edit-select-all', timeout=4000)
         slurp_args = ['slurp', '-d', '-b', '#00000050', '-c', '#a6e3a1', '-s', '#a6e3a125', '-w', '2']
         # 150ms delay lets any active Qt popup menu unmap from Wayland so pointer grab succeeds cleanly
@@ -699,7 +699,7 @@ class Reader(QObject):
     def area_selected(self, code, out, err):
         if code or not out.strip():
             self.update('Looking for text…' if self.enabled else 'Off')
-            notify('Screen Narrator', 'Area selection cancelled', icon='dialog-information', timeout=2000)
+            desktop_notify('Screen Narrator', 'Area selection cancelled', icon='dialog-information', timeout=2000)
             return
         match = re.match(r'^(\d+),(\d+)\s+(\d+)x(\d+)$', out.strip())
         if not match:
@@ -708,7 +708,7 @@ class Reader(QObject):
         x, y, w, h = map(int, match.groups())
         if w < 20 or h < 20:
             self.update('Looking for text…' if self.enabled else 'Off')
-            notify('Screen Narrator', 'Selected area was too small. Drag a box over the text to read.',
+            desktop_notify('Screen Narrator', 'Selected area was too small. Drag a box over the text to read.',
                    icon='dialog-warning', timeout=2500)
             return
 
@@ -755,7 +755,7 @@ class Reader(QObject):
         else:
             msg = f'Reading area set: {w}×{h} px'
 
-        notify('Screen Narrator', msg, icon='edit-select-all', timeout=2000)
+        desktop_notify('Screen Narrator', msg, icon='edit-select-all', timeout=2000)
         self.update()
         if not self.enabled:
             self.set_enabled(True, notify=True)
@@ -769,7 +769,7 @@ class Reader(QObject):
             self.settings['kindle_area'] = None
             self.save()
         if had_area:
-            notify('Screen Narrator', 'Reading area reset to default', icon='view-fullscreen', timeout=1500)
+            desktop_notify('Screen Narrator', 'Reading area reset to default', icon='view-fullscreen', timeout=1500)
             self.update()
             if self.enabled:
                 self.read_again()

@@ -47,3 +47,33 @@ class TrayMenuTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class StartStopTests(unittest.TestCase):
+    """▶ Start, Stop and the tray actions call set_enabled(..., notify=True)."""
+
+    def subject(self, enabled=False):
+        from reader import DEFAULTS
+        return SimpleNamespace(provider_status='', installing_kokoro=False, settings=dict(DEFAULTS),
+                               preview_original=None, testing_voice=False, enabled=enabled, paused=False,
+                               stop_speech=Mock(), tasks=set(), update=Mock(), timer=Mock(),
+                               kokoro_worker=Mock(), translation_worker=Mock(), overlay=Mock(), scan=Mock())
+
+    def test_start_with_notification_starts_scanning(self):
+        subject = self.subject()
+        with patch('reader.voice_is_available', return_value=True), patch('reader.subprocess.Popen') as popen, \
+             patch('reader.QTimer.singleShot') as single_shot:
+            Reader.set_enabled(subject, True, notify=True)
+        self.assertTrue(subject.enabled)
+        subject.timer.start.assert_called_once()
+        single_shot.assert_called_once()
+        self.assertEqual(popen.call_args.args[0][0], 'notify-send')
+
+    def test_stop_with_notification_stops_scanning(self):
+        subject = self.subject(enabled=True)
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as folder, patch('reader.subprocess.Popen'), patch('reader.RUNTIME', Path(folder)):
+            Reader.set_enabled(subject, False, notify=True)
+        self.assertFalse(subject.enabled)
+        subject.timer.stop.assert_called_once()
