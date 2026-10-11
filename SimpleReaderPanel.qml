@@ -190,7 +190,6 @@ Ui.Panel {
   readonly property bool installBusy: setupBusy || state.installing_kokoro === true || state.installing_translator === true
   readonly property string installMessage: setupBusy ? (state.setup_message || "Setting up…") : (state.provider_status || state.translation_status || "Installing…")
   // "Set up automatically": install what the chosen language and provider still need.
-  readonly property bool translating: !!config.translate_to
   function failedCheck(prefix) {
     var list = state.checks || []
     for (var i = 0; i < list.length; i++) if (!list[i].ok && list[i].label.indexOf(prefix) === 0) return list[i]
@@ -217,6 +216,34 @@ Ui.Panel {
   function setupReading() {
     var needVoice = !translating && voiceNeed() !== null
     request(Object.assign({command: "setup"}, setupPlan(config.language, config.language, failedCheck("Text recognition") !== null, needVoice)))
+  }
+  function defaultTranslationTarget() {
+    var desktop = state.desktop_language || "en"
+    if (desktop !== config.language) return desktop
+    return config.language === "en" ? "de" : "en"
+  }
+  function needsOfflineTranslator() {
+    var check = failedCheck("Translation")
+    return check !== null && check.fixes.length > 0 && check.fixes[0].command === "install-translator"
+  }
+  readonly property string translationNeeds: {
+    if (!translating) return ""
+    var parts = [], voice = voiceNeed()
+    if (voice) parts.push(voice.fixes[0].label.replace(/^Install /, "a ").replace(/ voice/, " " + activeEngine + " voice"))
+    if (needsOfflineTranslator()) parts.push("the offline translator (about 1.4 GB, non-commercial use)")
+    return parts.join(" and ")
+  }
+  // A translation problem that installing cannot solve (e.g. the chosen server is not running).
+  readonly property string translationProblem: {
+    var check = translating ? failedCheck("Translation") : null
+    return check && !needsOfflineTranslator() ? check.problem + " Start it, or choose the offline translator in Translation settings." : ""
+  }
+  function setupTranslation() {
+    var needVoice = voiceNeed() !== null
+    if (!needVoice && needsOfflineTranslator()) { request({command: "install-translator"}); return }
+    var args = setupPlan(config.translate_to, config.language, false, needVoice)
+    if (needsOfflineTranslator()) args.translator = "nllb"
+    request(Object.assign({command: "setup"}, args))
   }
   function applyFix(fix) {
     if (fix.command) { request(Object.assign({command: fix.command}, fix.args || {})); return }
@@ -490,7 +517,32 @@ Ui.Panel {
                 }
               }
             }
-            Ui.Button { focusable: true; width: parent.width; text: "Translation · " + (root.translating ? root.languageInfo(root.config.language).label.split(" · ")[0] + " → " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] : "off") + "…"; bordered: true; enabled: root.backendReady && !root.setupBusy; onClicked: root.showTranslation = true }
+            Rectangle {
+              width: parent.width
+              height: translationGroup.implicitHeight + Style.space(20)
+              radius: Style.cornerRadius
+              color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.04)
+              border.color: Qt.rgba(Color.foreground.r, Color.foreground.g, Color.foreground.b, 0.14)
+              Column {
+                id: translationGroup
+                anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(10)
+                spacing: Style.spacing.md
+                Row {
+                  spacing: Style.space(8)
+                  Text { text: "󰗊"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
+                  Text { text: "Translation"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                }
+                Ui.Toggle { width: parent.width; label: "Translate before reading"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; checked: root.translating; onClicked: root.set("translate_to", root.translating ? "" : root.defaultTranslationTarget()) }
+                Column {
+                  width: parent.width; spacing: Style.spacing.md; visible: root.translating
+                  Ui.SearchableDropdown { id: groupTranslateTo; placeholderText: "Type to filter languages…"; width: parent.width; label: "Read " + root.languageInfo(root.config.language).label.split(" · ")[0] + " text aloud in"; enabled: !root.enabledReader; options: root.languageOptions.filter(function(o) { return o.value !== root.config.language }); value: root.config.translate_to || ""; onChanged: { root.set("translate_to", value); groupTranslateTo.value = Qt.binding(function() { return root.config.translate_to || "" }) } }
+                  Text { width: parent.width; text: "Translator: " + (root.config.translator === "nllb" ? "offline NLLB-200 on this computer" : (root.config.translator_model ? root.config.translator_model + " · " + root.config.translator_endpoint : "not chosen yet")); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what translating into this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.translationNeeds !== ""; onClicked: root.setupTranslation() }
+                  Text { width: parent.width; text: root.translationProblem !== "" ? root.translationProblem : (root.translationNeeds !== "" ? "Installs " + root.translationNeeds + "." : "✓ Everything for reading in " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Ui.Button { focusable: true; bordered: true; text: "Translation settings…"; fontSize: Style.font.caption; onClicked: root.showTranslation = true }
+                }
+              }
+            }
           }
           Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.closeProviders() }
           Text { width: parent.width; visible: root.showProviders && root.setupBusy; text: root.state.setup_message || "Setting up…"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }

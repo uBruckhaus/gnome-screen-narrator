@@ -133,7 +133,7 @@ def install_launcher(backup):
     desktop.write_text(template)
 
 
-def install(language, backend_only=False, engine=None, ocr_language=None):
+def install(language, backend_only=False, engine=None, ocr_language=None, translator=None):
     """Set up the reader: OCR data for `ocr_language` (default: `language`) and a voice for `language`."""
     if not languages.valid(language) or not languages.valid(ocr_language or language):
         raise ValueError('Choose a supported language')
@@ -227,6 +227,9 @@ Environment=PYTHONDONTWRITEBYTECODE=1
         if engine == 'piper':
             from install_piper import install as install_voice
             install_voice(DATA, language, run, report)
+        if translator == 'nllb':
+            report('Installing offline translator (about 1.4 GB)…', 'translator')
+            run([python, app / 'install_nllb.py'], stream=True)
         report('Ready. Test provider voice, then choose Use provider.', 'ready', False)
     except Exception as error:
         report('Setup failed: ' + str(error), 'error', False)
@@ -243,9 +246,10 @@ if __name__ == '__main__':
     parser.add_argument('--backend-only', action='store_true')
     parser.add_argument('--engine', choices=('piper',))
     parser.add_argument('--ocr-language', choices=sorted(languages.LANGUAGES))
+    parser.add_argument('--translator', choices=('nllb',))
     options = parser.parse_args()
     try:
-        install(options.language, options.backend_only or options.engine is not None, options.engine, options.ocr_language)
+        install(options.language, options.backend_only or options.engine is not None, options.engine, options.ocr_language, options.translator)
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)
