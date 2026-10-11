@@ -5,7 +5,7 @@
   "version": "0.4.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Read screen text and Kindle pages aloud in 51 languages, optionally translated. Local OCR and speech with guided Kokoro or Piper setup and reading controls.",
+  "description": "Read any window or Kindle page aloud in 51 languages, optionally translated first (offline or via llama.cpp, LM Studio, Ollama). Local OCR and voices.",
   "kinds": [
     "bar-widget"
   ],

@@ -2,9 +2,9 @@
 
 *Formerly Simple Reader.* The plugin ID `ubruckhaus.simple-reader`, the `simple-reader` command and all data paths are unchanged.
 
-Read visible text aloud without leaving the Omarchy bar. Screen Narrator captures the active window with local OCR and narrates it with a selected voice. Its native popup includes voice, language, speed, pause, reading-area and Kindle page controls. The reader service is included; speech models are downloaded separately.
+Read any window or Kindle page aloud — and, if you like, **translate it first**. Screen Narrator recognizes the text of the active window with local OCR and speaks it with a local voice in 51 languages. Turn on **Translate before reading** to read, say, an English page and hear it in Spanish: translation runs offline with NLLB-200 or through your own llama.cpp, LM Studio or Ollama server. The reader service is included; voices and the translator are downloaded on request.
 
-Click the headphones bar icon for reading, voice, language, speed, Kindle and area controls. Settings save immediately. Closing the popup leaves narration running; Stop ends it. User Manual opens integrated guidance. Existing reader shortcuts remain available; installation does not replace any desktop shortcuts.
+Click the headphones bar icon for ▶ Start / ❚❚ Pause / ■ Stop and three collapsible groups: **Reading** (text language, speed, Kindle and area options), **Voice** (provider, voice, audio output) and **Translation** (off by default). Right-click the icon to start or stop reading directly. When something is missing, the popup names the one next step and a **Set up automatically** button installs it. Settings save immediately. Closing the popup leaves narration running; Stop ends it. User Manual opens integrated guidance. Existing reader shortcuts remain available; installation does not replace any desktop shortcuts.
 
 The bridge uses only a private local Unix socket and Python standard library. Native Omarchy components are under `native/` with the upstream license. Removing this widget does not remove the reader or its preferences.
 
@@ -44,7 +44,28 @@ performs the same guided installation (any two-letter code from the language lis
 Piper is chosen automatically when Kokoro has no voice for it). `--backend-only` installs or upgrades the backend without
 downloading or selecting a voice.
 
-## Remove
+## What setup installs and changes
+
+Nothing is installed when the plugin is added. Setup runs only when you press **Set up now**,
+**Set up automatically**, an install button, or `setup.sh`:
+
+- **System packages** (`pkexec pacman -S --needed`), only those missing from a fixed list: `grim`,
+  `slurp`, `imagemagick`, `tesseract`, `mpv`, `wtype`, `quickshell`, `hyprland`, `libpulse` and
+  `tesseract-data-<language>` for the chosen text language. Authorization is requested each time.
+- **User service** `~/.config/systemd/user/ocrvox.service` with the drop-in
+  `ocrvox.service.d/read-aloud-runtime.conf`; setup stops, reloads and starts only this unit
+  (`systemctl --user`). An existing unit not created by this plugin is left untouched.
+- **Private Python runtimes** under `~/.local/share/kindle-reader` (`venv`, `piper-runtime`) with pinned
+  packages, the `~/.local/bin/simple-reader` launcher and `~/.local/share/applications/simple-reader.desktop`.
+  Replaced files are backed up in `~/.local/share/kindle-reader/backups/`.
+- **Downloads**, all from pinned revisions and checked with SHA256 before use: Kokoro models (GitHub
+  release `model-files-v1.0`, Hugging Face `Godelaune/Kokoro-82M-ONNX-German-Martin`), Piper voices
+  (`rhasspy/piper-voices`) and, only if you choose it, the offline translator
+  (`OpenNMT/nllb-200-distilled-1.3B-ct2-int8`, CC-BY-NC 4.0, non-commercial use only).
+- **Network while reading**: none by default. Only a speech or translation server you configure is
+  contacted (HTTPS, or HTTP on this computer only); it receives the recognized text.
+
+
 
 Press **Stop** before removing the widget:
 
@@ -84,7 +105,7 @@ OCR stays local. Online speech sends the text being read to the selected provide
 
 ## Marketplace summary
 
-**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 51 languages, with optional translation into any of them, with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
+**Screen Narrator — read any window aloud, in your language.** Local OCR and local voices (Kokoro, Piper) in 51 languages, with optional translation before reading: offline NLLB-200, or your own llama.cpp, LM Studio or Ollama server. One-click setup per language, collapsible Reading / Voice / Translation groups, passage highlighting, reading areas and automatic Kindle page turning. Optional OpenAI-compatible speech servers. No model or credential is bundled; nothing leaves your computer unless you choose a remote server.
 
 ## Development checks
 
