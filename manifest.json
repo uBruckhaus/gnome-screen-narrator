@@ -5,7 +5,7 @@
   "version": "0.3.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Read screen text and Kindle pages aloud in 51 languages. Local OCR and speech with guided Kokoro or Piper setup, highlighting and reading controls.",
+  "description": "Read screen text and Kindle pages aloud in 50 languages. Local OCR and speech with guided Kokoro or Piper setup, highlighting and reading controls.",
   "kinds": [
     "bar-widget"
   ],

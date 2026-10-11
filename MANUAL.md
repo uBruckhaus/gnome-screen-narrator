@@ -2,7 +2,7 @@
 
 Click the headphones icon in the Omarchy bar to open reading controls. Read active window begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
 
-Choose voice, text language (51 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
+Choose voice, text language (50 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
 
 The integrated User Manual explains these controls in section cards. Existing reader shortcuts continue to work; this plugin does not install or replace shortcuts. The application launcher opens the bar popup. Speech engines and OCR stay in the existing local reader service.
 
@@ -25,12 +25,12 @@ becomes available after a successful test and saves the new selection.
 
 - **Kokoro:** choose the reading language and **Install Kokoro voice & reader**.
   Kokoro speaks English (US and British voices), German (Martin), Spanish, French,
-  Italian, Brazilian Portuguese, Hindi, Japanese and Mandarin Chinese.
+  Italian, Brazilian Portuguese, Hindi and Mandarin Chinese.
   Downloads are about 330–354 MB plus runtime packages, verified with SHA256.
   No llama.cpp or Ollama is needed. Repair is available for installed languages.
 - **Piper:** choose the reading language, then **Install / repair Piper voice &
-  reader**. Piper has one curated voice for each of 50 languages, from Arabic to
-  Vietnamese (all except Japanese, which Kokoro covers). The installer uses a separate
+  reader**. Piper has one curated voice for each of the 50 languages, from Arabic to
+  Vietnamese. The installer uses a separate
   Python runtime with pinned Piper 1.8.0, downloads the voice (60–122 MB), verifies the model and configuration
   using SHA256, and checks speech generation. It preserves the active voice and
   existing reader packages. Existing Piper voices remain available.
@@ -48,8 +48,8 @@ system authorization. Reader updates keep backups, models, voices and preference
 Installing another language does not change the active provider or language.
 Setup also installs the Tesseract OCR data for the chosen language
 (`tesseract-data-<code>`). If Kokoro has no voice for a language, the popup offers
-Piper instead, and the reverse. Thai and Lithuanian are not offered, because no
-working local voice exists for them yet. A speech server can still read any language
+Piper instead, and the reverse. Japanese, Thai and Lithuanian are not offered yet, because no
+local voice here pronounces them correctly. A speech server can still read any language
 your OCR data supports.
 
 **Advanced · files & maintenance** contains manual Piper/Qwen paths, Kokoro model

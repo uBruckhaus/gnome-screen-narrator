@@ -2,7 +2,7 @@
 
 Piper voices are pinned to one rhasspy/piper-voices revision; the SHA256 values
 come from that revision's Hugging Face LFS metadata. Kokoro reads German with the
-Martin model and the other listed languages with the standard v1.0 model."""
+Martin model and its other listed languages with the standard v1.0 model."""
 
 import os
 
@@ -33,7 +33,6 @@ LANGUAGES = {
     'id': ('Indonesian', 'Bahasa Indonesia', 'ind', 'Halo, ini adalah tes.'),
     'is': ('Icelandic', 'Íslenska', 'isl', 'Halló, þetta er próf.'),
     'it': ('Italian', 'Italiano', 'ita', 'Ciao, questa è una prova.'),
-    'ja': ('Japanese', '日本語', 'jpn', 'こんにちは、これはテストです。'),
     'ka': ('Georgian', 'ქართული', 'kat', 'გამარჯობა, ეს ტესტია.'),
     'kk': ('Kazakh', 'Қазақша', 'kaz', 'Сәлеметсіз бе, бұл сынақ.'),
     'ko': ('Korean', '한국어', 'kor', '안녕하세요, 이것은 테스트입니다.'),
@@ -73,13 +72,13 @@ KOKORO = {
     'it': ('en', 'it', [('if_sara', 'Sara · female'), ('im_nicola', 'Nicola · male')]),
     'pt': ('en', 'pt-br', [('pf_dora', 'Dora · female'), ('pm_alex', 'Alex · male')]),
     'hi': ('en', 'hi', [('hf_alpha', 'Alpha · female'), ('hm_omega', 'Omega · male')]),
-    'ja': ('en', 'ja', [('jf_alpha', 'Alpha · female'), ('jm_kumo', 'Kumo · male')]),
     'zh': ('en', 'cmn', [('zf_xiaobei', 'Xiaobei · female'), ('zm_yunjian', 'Yunjian · male')]),
 }
 
 # code: (folder, model file, model SHA256, config SHA256, size in MB)
 # Piper 1.8 cannot run the Japanese, Thai or Lithuanian voices (non-espeak
-# phonemizers), so Japanese uses Kokoro and Thai/Lithuanian are not offered.
+# phonemizers), and Kokoro's espeak phonemizer cannot read kanji, so these three
+# languages are not offered.
 PIPER = {
     'ar': ('ar/ar_JO/kareem/medium/', 'ar_JO-kareem-medium.onnx',
            '9e95cab07b679da603bba17c4dec7ab3111320571964ee95c0379603c086491e',

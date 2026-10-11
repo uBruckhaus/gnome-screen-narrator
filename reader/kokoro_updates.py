@@ -136,13 +136,13 @@ def update(language, progress=None):
     # Construct both model and voice tables before committing the active pair.
     report('Validating downloaded model and voices…')
     with contextlib.redirect_stdout(sys.stderr):
-        from kokoro_onnx import Kokoro
-        model = Kokoro(str(destination / assets[0][0]), str(destination / assets[1][0]))
+        from kokoro_compat import create, load
+        model = load(destination / assets[0][0], destination / assets[1][0])
         voice = 'martin' if language == 'de' else 'af_heart'
         if voice not in model.get_voices():
             raise ValueError('Downloaded model pair is missing its default voice')
-        samples, rate = model.create('Hallo.' if language == 'de' else 'Hello.', voice=voice,
-                                     lang='de' if language == 'de' else 'en-us')
+        samples, rate = create(model, 'Hallo.' if language == 'de' else 'Hello.', voice,
+                               lang='de' if language == 'de' else 'en-us')
         if len(samples) == 0 or rate <= 0:
             raise ValueError('Downloaded model pair failed the speech test')
         del model

@@ -27,8 +27,8 @@ setup stays separate from active settings until you test and activate it. Readin
 options expand Kindle, following, highlighting and area controls. Advanced contains
 manual files and maintenance. See [MANUAL.md](MANUAL.md) for the full setup flow.
 
-**51 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
-Hindi, Japanese and Chinese (about 330–354 MB plus runtime packages). Piper covers
+**50 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
+Hindi and Chinese (about 330–354 MB plus runtime packages). Piper covers all
 50 languages with one voice each (60–122 MB plus a separate pinned runtime). Setup
 installs the matching Tesseract OCR data. The popup defaults to your desktop locale. Progress, retry and cancellation
 are built in; system package transactions request authorization and cannot be
@@ -75,7 +75,7 @@ OCR stays local. Online speech sends the text being read to the selected provide
 
 ## Marketplace summary
 
-**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 51 languages with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
+**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 50 languages with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
 
 ## Development checks
 
