@@ -27,6 +27,7 @@ Ui.Panel {
   property string engineChoice: ""
   property bool showProviders: false
   property bool showReadingOptions: false
+  property bool showTranslationGroup: false
   property bool showTranslation: false
   property bool rememberTranslatorToken: false
   property bool showVoiceGroup: false
@@ -527,19 +528,29 @@ Ui.Panel {
                 id: translationGroup
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(10)
                 spacing: Style.spacing.md
-                Row {
-                  spacing: Style.space(8)
-                  Text { text: "󰗊"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
-                  Text { text: "Translation"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                Item {
+                  width: parent.width; height: Math.max(translationGroupTitle.implicitHeight, Style.space(22))
+                  Row {
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(8)
+                    Text { text: "󰗊"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
+                    Text { id: translationGroupTitle; text: "Translation"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "· " + (root.translating ? "→ " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] : "off"); color: Color.foreground; opacity: 0.7; elide: Text.ElideRight; width: parent.width - Style.space(150); font.family: Style.font.family; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
+                  }
+                  Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.showTranslationGroup ? "▾" : "▸"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showTranslationGroup = !root.showTranslationGroup }
                 }
-                Ui.Toggle { width: parent.width; label: "Translate before reading"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; checked: root.translating; onClicked: root.set("translate_to", root.translating ? "" : root.defaultTranslationTarget()) }
                 Column {
-                  width: parent.width; spacing: Style.spacing.md; visible: root.translating
-                  Ui.SearchableDropdown { id: groupTranslateTo; placeholderText: "Type to filter languages…"; width: parent.width; label: "Read " + root.languageInfo(root.config.language).label.split(" · ")[0] + " text aloud in"; enabled: !root.enabledReader; options: root.languageOptions.filter(function(o) { return o.value !== root.config.language }); value: root.config.translate_to || ""; onChanged: { root.set("translate_to", value); groupTranslateTo.value = Qt.binding(function() { return root.config.translate_to || "" }) } }
-                  Text { width: parent.width; text: "Translator: " + (root.config.translator === "nllb" ? "offline NLLB-200 on this computer" : (root.config.translator_model ? root.config.translator_model + " · " + root.config.translator_endpoint : "not chosen yet")); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                  Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what translating into this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.translationNeeds !== ""; onClicked: root.setupTranslation() }
-                  Text { width: parent.width; text: root.translationProblem !== "" ? root.translationProblem : (root.translationNeeds !== "" ? "Installs " + root.translationNeeds + "." : "✓ Everything for reading in " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                  Ui.Button { focusable: true; bordered: true; text: "Translation settings…"; fontSize: Style.font.caption; onClicked: root.showTranslation = true }
+                  width: parent.width; spacing: Style.spacing.md; visible: root.showTranslationGroup
+                  Ui.Toggle { width: parent.width; label: "Translate before reading"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; checked: root.translating; onClicked: root.set("translate_to", root.translating ? "" : root.defaultTranslationTarget()) }
+                  Column {
+                    width: parent.width; spacing: Style.spacing.md; visible: root.translating
+                    Ui.SearchableDropdown { id: groupTranslateTo; placeholderText: "Type to filter languages…"; width: parent.width; label: "Read " + root.languageInfo(root.config.language).label.split(" · ")[0] + " text aloud in"; enabled: !root.enabledReader; options: root.languageOptions.filter(function(o) { return o.value !== root.config.language }); value: root.config.translate_to || ""; onChanged: { root.set("translate_to", value); groupTranslateTo.value = Qt.binding(function() { return root.config.translate_to || "" }) } }
+                    Text { width: parent.width; text: "Translator: " + (root.config.translator === "nllb" ? "offline NLLB-200 on this computer" : (root.config.translator_model ? root.config.translator_model + " · " + root.config.translator_endpoint : "not chosen yet")); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what translating into this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.translationNeeds !== ""; onClicked: root.setupTranslation() }
+                    Text { width: parent.width; text: root.translationProblem !== "" ? root.translationProblem : (root.translationNeeds !== "" ? "Installs " + root.translationNeeds + "." : "✓ Everything for reading in " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    Ui.Button { focusable: true; bordered: true; text: "Translation settings…"; fontSize: Style.font.caption; onClicked: root.showTranslation = true }
+                  }
                 }
               }
             }
