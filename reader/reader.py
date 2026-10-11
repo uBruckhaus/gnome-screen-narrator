@@ -523,21 +523,24 @@ class Reader(QObject):
     def readiness_checks(self):
         """What must be in place before reading can start, shown in the popup."""
         checks = []
-        def check(ok, label, problem):
-            checks.append(dict(ok=bool(ok), label=label, problem='' if ok else problem))
+        # Each failed check may offer fixes: {label, panel} opens a popup page, {label, settings} applies settings.
+        def check(ok, label, problem, fixes=()):
+            checks.append(dict(ok=bool(ok), label=label, problem='' if ok else problem, fixes=[] if ok else list(fixes)))
+        providers = dict(label='Open provider setup', panel='providers')
         spoken = languages.name(self.voice_language())
         if self.settings.get('provider', 'Local') == 'Online':
             check(self.settings.get('online_model') and self.settings.get('online_voice'), 'Speech server',
-                  'Choose a speech model and voice under Add / manage speech providers.')
+                  'Choose a speech model and voice under Add / manage speech providers.', [providers])
         else:
             voice_ok = voice_is_available(self.settings['voice'], self.settings) and \
                 self.settings['voice'] in available_voices(self.voice_language(), self.settings)
-            check(voice_ok, 'Voice · ' + spoken, 'No ' + spoken + ' voice selected or installed. Use Add / manage speech providers.')
+            check(voice_ok, 'Voice · ' + spoken, 'No ' + spoken + ' voice selected or installed. Use Add / manage speech providers.', [providers])
         ocr = languages.ocr_language(self.settings['language'])
         check(ocr in ocr_languages(), 'Text recognition · ' + languages.name(self.settings['language']),
-              'Text recognition data for ' + languages.name(self.settings['language']) + ' is missing. Run setup for this language.')
+              'Text recognition data for ' + languages.name(self.settings['language']) + ' is missing. Run setup for this language.', [providers])
         check(self.settings.get('audio_output', 'auto') in {o['value'] for o in outputs()}, 'Audio output',
-              'The selected audio output is not connected. Choose another output.')
+              'The selected audio output is not connected. Choose another output.',
+              [dict(label='Use system default output', settings=dict(audio_output='auto'))])
         checks.extend(self.extra_checks())
         return checks
 

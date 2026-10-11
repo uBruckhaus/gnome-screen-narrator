@@ -160,6 +160,10 @@ Ui.Panel {
     content.forceActiveFocus()
     return true
   }
+  function applyFix(fix) {
+    if (fix.panel === "providers") manageProvider(activeEngine)
+    else if (fix.settings) request({command: "configure", settings: fix.settings})
+  }
   function closeProviders() {
     showProviders = false
     engineChoice = ""
@@ -298,7 +302,7 @@ Ui.Panel {
             }
             Row {
               width: parent.width; spacing: Style.spacing.md
-              Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "▶  Start"; tooltipText: "Start reading the focused window (or right-click the bar icon)"; bordered: true; selected: !root.enabledReader && enabled; enabled: root.loaded && !root.setupBusy && !root.state.kokoro_checking && !root.state.installing_kokoro && root.backendReady && root.voiceReady && root.state.can_start !== false && !root.enabledReader; onClicked: root.request({command: "on"}) }
+              Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "▶  Start"; tooltipText: "Start reading the focused window (or right-click the bar icon)"; bordered: true; selected: !root.enabledReader && enabled && root.state.can_start !== false; enabled: root.loaded && !root.setupBusy && !root.state.kokoro_checking && !root.state.installing_kokoro && root.backendReady && !root.enabledReader; onClicked: root.request({command: "on"}) }
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: root.state.paused ? "▶  Resume" : "❚❚  Pause"; bordered: true; enabled: root.enabledReader; onClicked: root.request({command: "pause"}) }
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "■  Stop"; tooltipText: "Stop reading (or right-click the bar icon)"; bordered: true; selected: root.enabledReader; enabled: root.enabledReader; onClicked: root.request({command: "off"}) }
             }
@@ -306,7 +310,18 @@ Ui.Panel {
               width: parent.width; spacing: Style.space(2); visible: !root.enabledReader && (root.state.checks || []).length > 0
               Repeater {
                 model: root.state.checks || []
-                Text { required property var modelData; width: parent.width; text: (modelData.ok ? "✓  " : "✗  ") + modelData.label + (modelData.ok ? "" : " — " + modelData.problem); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: modelData.ok ? Color.foreground : Theme.Color.accent; opacity: modelData.ok ? 0.75 : 1; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                Column {
+              required property var modelData
+              width: parent.width; spacing: Style.space(4)
+              Text { width: parent.width; text: (modelData.ok ? "✓  " : "✗  ") + modelData.label + (modelData.ok ? "" : " — " + modelData.problem); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: modelData.ok ? Color.foreground : Theme.Color.accent; opacity: modelData.ok ? 0.75 : 1; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+              Flow {
+                width: parent.width; spacing: Style.spacing.md; visible: (modelData.fixes || []).length > 0
+                Repeater {
+                  model: modelData.fixes || []
+                  Ui.Button { required property var modelData; focusable: true; bordered: true; text: modelData.label; fontSize: Style.font.caption; onClicked: root.applyFix(modelData) }
+                }
+              }
+            }
               }
             }
             Text { width: parent.width; text: "Status: " + (root.message === "Off" ? "not reading" : root.message); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }

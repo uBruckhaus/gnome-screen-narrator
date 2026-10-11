@@ -103,6 +103,12 @@ class ReadinessTests(unittest.TestCase):
         self.assertIn('Text recognition data for German', self.run_checks(self.subject(), ocr={'eng'})[1]['problem'])
         self.assertIn('not connected', self.run_checks(self.subject(audio_output='pulse/gone'))[2]['problem'])
 
+    def test_failed_checks_offer_fixes(self):
+        checks = self.run_checks(self.subject(audio_output='pulse/gone'), voice_ok=False)
+        self.assertEqual(checks[0]['fixes'], [dict(label='Open provider setup', panel='providers')])
+        self.assertEqual(checks[2]['fixes'], [dict(label='Use system default output', settings=dict(audio_output='auto'))])
+        self.assertTrue(all(c['fixes'] == [] for c in self.run_checks(self.subject())))
+
     def test_start_is_refused_with_the_reason(self):
         subject = StartStopTests().subject()
         subject.readiness_checks = Mock(return_value=[dict(ok=False, label='Voice', problem='No German voice selected')])
