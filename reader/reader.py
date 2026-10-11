@@ -1130,6 +1130,13 @@ class Reader(QObject):
             return
         if digest == self.ocr_image:
             self.scanning = False
+            turned = getattr(self, 'pdf_turned_at', None)
+            if turned and time.monotonic() - turned > 3 and not self.is_speaking():
+                # A PDF page turn that changes nothing: the last page was read.
+                self.pdf_turned_at = None
+                self.set_enabled(False)
+                self.update('End of document')
+                return
             if self.status == 'Waiting for the reading window' and not self.is_speaking():
                 self.on_page_finished()
             return
@@ -1167,9 +1174,15 @@ class Reader(QObject):
             return
         self.ocr_image = getattr(self, 'image_candidate', None)
 
-        # Idle or waiting for next page
-        if same_text(text, self.last_text, threshold=0.90):
+        # Idle or waiting for next page. After a PDF page turn the page did change, even if
+        # its text is nearly the same (slides that reveal content step by step).
+        just_turned = getattr(self, 'pdf_turned_at', None) is not None
+        if same_text(text, self.last_text, threshold=0.90) and not (just_turned and text != self.last_text):
             self.candidate = ''
+            if just_turned and not self.is_speaking():
+                # Same text on the new page (e.g. two blank pages): nothing to read, turn on.
+                self.on_page_finished()
+                return
             if getattr(self, 'status', '') == 'Waiting for the reading window' and not self.is_speaking():
                 self.on_page_finished()
             return
@@ -1183,6 +1196,7 @@ class Reader(QObject):
             QTimer.singleShot(150, self.scan)
             return
         self.last_text = text
+        self.pdf_turned_at = None
         self.candidate = ''
         self.stop_speech()
         self.queue = page_chunks(text)
@@ -1470,6 +1484,8 @@ class Reader(QObject):
     def page_turn_sent(self, code, out, err):
         if not self.enabled or self.paused:
             return
+        if self.pdf_keys():
+            self.pdf_turned_at = time.monotonic()
         if code:
             self.fail('Could not turn the page: ' + err)
             return
