@@ -201,9 +201,21 @@ Ui.Panel {
     var check = failedCheck("Voice")
     return check && canInstallVoices ? check : null
   }
+  // The local engine guided setup uses for a language: the chosen one if it has a voice, else the other.
+  function installEngine(code) {
+    var info = languageInfo(code)
+    if (activeEngine === "Piper" && info.piper) return "Piper"
+    return info.kokoro ? "Kokoro" : "Piper"
+  }
+  function voiceInstallText(check, code) {
+    var size = (check.fixes[0].label.match(/\(([^)]*)\)/) || ["", ""])[1]
+    return "a " + languageInfo(code).label.split(" · ")[0] + " " + installEngine(code) + " voice" + (size ? " (" + size + ")" : "")
+  }
+  readonly property bool voiceBlocked: failedCheck("Voice") !== null && !canInstallVoices
+  readonly property string voiceBlockedText: "Voices for " + (activeEngine === "Online" ? "a speech server" : activeEngine) + " cannot be installed automatically. Open Voice → Add / manage speech providers, or choose Kokoro or Piper there."
   function setupPlan(voiceLanguage, ocrLanguage, needOcr, needVoice) {
     var args = {language: voiceLanguage, ocr_language: ocrLanguage}
-    if (needVoice && activeEngine === "Piper" && languageInfo(voiceLanguage).piper) args.engine = "piper"
+    if (needVoice && installEngine(voiceLanguage) === "Piper") args.engine = "piper"
     if (!needVoice) args.backend_only = true
     return args
   }
@@ -211,7 +223,7 @@ Ui.Panel {
     var parts = []
     var ocr = failedCheck("Text recognition"), voice = translating ? null : voiceNeed()
     if (ocr) parts.push(languageInfo(config.language).label.split(" · ")[0] + " text recognition")
-    if (voice) parts.push(voice.fixes[0].label.replace(/^Install /, "a ").replace(/ voice/, " " + activeEngine + " voice"))
+    if (voice) parts.push(voiceInstallText(voice, config.language))
     return parts.join(" and ")
   }
   function setupReading() {
@@ -230,7 +242,7 @@ Ui.Panel {
   readonly property string translationNeeds: {
     if (!translating) return ""
     var parts = [], voice = voiceNeed()
-    if (voice) parts.push(voice.fixes[0].label.replace(/^Install /, "a ").replace(/ voice/, " " + activeEngine + " voice"))
+    if (voice) parts.push(voiceInstallText(voice, config.translate_to))
     if (needsOfflineTranslator()) parts.push("the offline translator (about 1.4 GB, non-commercial use)")
     return parts.join(" and ")
   }
@@ -450,8 +462,8 @@ Ui.Panel {
                   width: parent.width; spacing: Style.spacing.md; visible: root.showReadingGroup
                   Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; width: parent.width; id: textLanguagePicker; label: "Text language"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; options: root.languageOptions; value: root.config.language || "en"; onChanged: { root.set("language", value); textLanguagePicker.value = Qt.binding(function() { return root.config.language || "en" }) } }
                   Ui.NumberField { label: "Reading speed (%)"; enabled: root.backendReady && !root.setupBusy; from: 60; to: 200; stepSize: 5; value: Math.round((root.config.speed || 1) * 100); onModified: root.set("speed", value / 100) }
-                  Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what reading in this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.readingNeeds !== ""; onClicked: root.setupReading() }
-                  Text { width: parent.width; text: root.readingNeeds !== "" ? "Installs " + root.readingNeeds + "." : "✓ Everything for reading " + root.languageInfo(root.config.language).label.split(" · ")[0] + " is installed."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what reading in this language still needs"; visible: root.readingNeeds !== ""; enabled: root.loaded && !root.enabledReader && !root.installBusy; onClicked: root.setupReading() }
+                  Text { width: parent.width; text: root.readingNeeds !== "" ? "Installs " + root.readingNeeds + "." : (!root.translating && root.voiceBlocked ? root.voiceBlockedText : "✓ Everything for reading " + root.languageInfo(root.config.language).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
                   Flow {
                     width: parent.width; spacing: Style.spacing.md
                     Ui.Button { focusable: true; text: "Read again"; bordered: true; enabled: root.enabledReader && !root.state.testing_voice; onClicked: root.request({command: "read"}) }
@@ -547,8 +559,8 @@ Ui.Panel {
                     width: parent.width; spacing: Style.spacing.md; visible: root.translating
                     Ui.SearchableDropdown { id: groupTranslateTo; placeholderText: "Type to filter languages…"; width: parent.width; label: "Read " + root.languageInfo(root.config.language).label.split(" · ")[0] + " text aloud in"; enabled: !root.enabledReader; options: root.languageOptions.filter(function(o) { return o.value !== root.config.language }); value: root.config.translate_to || ""; onChanged: { root.set("translate_to", value); groupTranslateTo.value = Qt.binding(function() { return root.config.translate_to || "" }) } }
                     Text { width: parent.width; text: "Translator: " + (root.config.translator === "nllb" ? "offline NLLB-200 on this computer" : (root.config.translator_model ? root.config.translator_model + " · " + root.config.translator_endpoint : "not chosen yet")); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                    Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what translating into this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.translationNeeds !== ""; onClicked: root.setupTranslation() }
-                    Text { width: parent.width; text: root.translationProblem !== "" ? root.translationProblem : (root.translationNeeds !== "" ? "Installs " + root.translationNeeds + "." : "✓ Everything for reading in " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                    Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what translating into this language still needs"; visible: root.translationNeeds !== ""; enabled: root.loaded && !root.enabledReader && !root.installBusy; onClicked: root.setupTranslation() }
+                    Text { width: parent.width; text: root.translationProblem !== "" ? root.translationProblem : (root.translationNeeds !== "" ? "Installs " + root.translationNeeds + "." : root.voiceBlocked ? root.voiceBlockedText : "✓ Everything for reading in " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " is installed."); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
                     Ui.Button { focusable: true; bordered: true; text: "Translation settings…"; fontSize: Style.font.caption; onClicked: root.showTranslation = true }
                   }
                 }

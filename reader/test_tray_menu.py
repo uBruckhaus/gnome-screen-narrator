@@ -146,3 +146,20 @@ class NoticeTests(unittest.TestCase):
             with patch('reader.subprocess.Popen'):
                 reader.desktop_notify('x', 'y', level='error')
         self.assertEqual(len(reader.NOTICES), 5)
+
+
+class ManagedPiperTests(unittest.TestCase):
+    """Piper voices installed by guided setup are listed and chosen like any other voice."""
+
+    def test_installed_basque_voice_is_offered_and_chosen(self):
+        import reader
+        ready = lambda settings, engine: engine == 'piper' and str(settings.get('piper_model', '')).endswith('eu_ES-antton-medium.onnx')
+        with patch('reader.engine_ready', side_effect=ready):
+            voices = reader.available_voices('eu', {})
+            self.assertIn('piper-eu', voices)
+            self.assertEqual(voices['piper-eu'][0], 'Antton · Piper')
+            self.assertNotIn('piper-eu', reader.available_voices('de', {}))
+            subject = SimpleNamespace(settings=dict(reader.DEFAULTS, language='de', translate_to='eu', voice='kokoro-martin', provider='Local'),
+                                      save=Mock(), voice_language=lambda: 'eu')
+            Reader.auto_configure(subject)
+        self.assertEqual(subject.settings['voice'], 'piper-eu')

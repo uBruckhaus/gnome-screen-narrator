@@ -54,6 +54,9 @@ for _code, (_family, _phonemes, _voices) in KOKORO.items():
     for _voice, _label in _voices:
         if not any(entry[2] == _voice for entry in VOICES.values()):
             VOICES['kokoro-' + _voice] = (_label + ' · Kokoro', 'kokoro', _voice)
+# Piper voices installed by guided setup (one per language) are ordinary voices too.
+for _code, (_prefix, _file, *_rest) in PIPER.items():
+    VOICES['piper-' + _code] = (_file.split('-')[1].replace('_', ' ').title() + ' · Piper', 'piper', 'managed:' + _code)
 DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='',
                 translate_to='', translator='llm', translator_endpoint='http://127.0.0.1:8080/v1',
                 translator_model='', remember_translator_token=False)
@@ -94,6 +97,8 @@ def voice_is_available(key, settings=None):
         if kokoro_voice_language(reference) == 'ja' and not all(importlib.util.find_spec(name) for name in languages.JAPANESE_MODULES):
             return False
         return all(present(path) for path in model_paths(kokoro_voice_language(reference) or 'en'))
+    if engine == 'piper' and reference.startswith('managed:'):
+        return engine_ready(installed_settings(DATA, reference.split(':', 1)[1]), 'piper')
     if engine == 'piper':
         return executable(DATA / 'venv/bin/piper') and all(present(DATA / 'voices' / name) for name in (reference, reference + '.json'))
     if engine == 'qwen':
@@ -118,6 +123,8 @@ def available_voices(language=None, settings=None):
             return not match or match.group(1) == language
         if engine == 'kokoro':
             return kokoro_voice_language(reference) == language
+        if reference.startswith('managed:'):
+            return reference.split(':', 1)[1] == language
         return reference.startswith(language + '_')
     result = {key: value for key, value in VOICES.items() if (voice_is_available(key, settings) if settings is not None else voice_is_available(key)) and matches(value)}
     if settings and 'piper-custom' in result:
@@ -126,6 +133,10 @@ def available_voices(language=None, settings=None):
                       for code, (_, piper_file, *_rest) in PIPER.items() if piper_file == model),
                      'Piper · ' + (model or 'custom voice'))
         result['piper-custom'] = (label, 'piper', 'custom')
+        # The same file installed by setup is already listed as its managed voice.
+        if any(key == 'piper-' + code and installed_settings(DATA, code)['piper_model'] == settings.get('piper_model')
+               for key in list(result) for code in PIPER):
+            del result['piper-custom']
     if settings and 'qwen-custom' in result:
         speaker = Path(settings.get('qwen_speaker') or '').stem
         result['qwen-custom'] = ('Qwen · ' + (speaker or 'custom speaker'), 'qwen', 'custom')
@@ -1234,6 +1245,9 @@ class Reader(QObject):
         _, engine, reference = VOICES[self.settings['voice']]
         online_payload = None
         custom_files = engine_files(self.settings, engine) if reference == 'custom' else None
+        if reference.startswith('managed:'):
+            managed = installed_settings(DATA, reference.split(':', 1)[1])
+            custom_files = [Path(managed['piper_runner']), Path(managed['piper_model']), Path(managed['piper_config'])]
         if self.settings.get('provider', 'Local') == 'Online':
             args = [sys.executable, Path(__file__).with_name('online_provider.py')]
             online_payload = json.dumps({'settings': self.settings, 'token': self.online_token, 'input': str(txt_file), 'output': str(wav_file)})
