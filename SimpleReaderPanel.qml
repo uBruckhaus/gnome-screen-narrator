@@ -86,7 +86,7 @@ Ui.Panel {
   function voiceLabel(id) {
     var voices = state.voices || []
     for (var i = 0; i < voices.length; i++) if (voices[i].value === id) return voices[i].label
-    return id || "No voice selected"
+    return "No voice yet"
   }
   function providerOptions() {
     return [{value: "Kokoro", label: "Kokoro · local · " + (languageInfo(installLanguage).kokoro ? "recommended" : "no " + languageInfo(installLanguage).label.split(" · ")[0] + " voice")},
