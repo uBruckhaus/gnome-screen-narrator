@@ -633,7 +633,13 @@ class Reader(QObject):
         else:
             ok, problem = translator_reachable(self.settings['translator_endpoint']), \
                 'The translation server at ' + self.settings['translator_endpoint'] + ' is not running. Start it or turn translation off.'
-        return [dict(ok=ok, label=label, problem='' if ok else problem)]
+        fixes = []
+        if not ok:
+            if self.settings.get('translator') != 'nllb' and nllb_ready():
+                fixes.append(dict(label='Use offline translator', settings=dict(translator='nllb')))
+            fixes.append(dict(label='Open Translation', panel='translation'))
+            fixes.append(dict(label='Turn translation off', settings=dict(translate_to='')))
+        return [dict(ok=ok, label=label, problem='' if ok else problem, fixes=fixes)]
 
     def voice_language(self):
         return speech_language(self.settings)

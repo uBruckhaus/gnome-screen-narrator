@@ -106,6 +106,9 @@ class TranslationReadinessTests(unittest.TestCase):
 
     def test_missing_model_and_stopped_server_are_reported(self):
         self.assertIn('No translation model', self.checks(translator_model='')[0]['problem'])
+        with patch('reader.nllb_ready', return_value=True):
+            fixes = [f['label'] for f in self.checks(translator_model='')[0]['fixes']]
+        self.assertEqual(fixes, ['Use offline translator', 'Open Translation', 'Turn translation off'])
         with patch('reader.translator_reachable', return_value=False):
             self.assertIn('not running', self.checks()[0]['problem'])
         with patch('reader.translator_reachable', return_value=True):
