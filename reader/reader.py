@@ -431,7 +431,8 @@ class Reader(QObject):
         self.status_action.setEnabled(False)
         self.menu.addSeparator()
         self.read_action = self.menu.addAction('Read active window again', self.read_again)
-        self.pause_action = self.menu.addAction('Pause', self.pause)
+        # Fixed label and always enabled: Launch & Bind binds entries by label and skips disabled ones.
+        self.pause_action = self.menu.addAction('Pause / resume', self.pause)
         self.menu.addSeparator()
         self.select_area_action = self.menu.addAction('Select reading area…', self.select_area)
         self.clear_area_action = self.menu.addAction('Reset area (Full window)', self.clear_area)
@@ -536,8 +537,6 @@ class Reader(QObject):
         self.status_action.setText('Status: ' + self.status)
         if hasattr(self, 'language_menu'):
             self.refresh_choice_menus()
-        self.pause_action.setText('Resume' if self.paused else 'Pause')
-        self.pause_action.setEnabled(self.enabled)
         if self.settings['voice'] in self.voice_actions:
             self.voice_actions[self.settings['voice']].setChecked(True)
         for rate, action in self.speed_actions.items():

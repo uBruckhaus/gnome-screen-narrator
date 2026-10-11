@@ -108,9 +108,13 @@ The same actions are available from a terminal as `simple-reader toggle`,
 
 Launch & Bind's **Plugins** view also exposes these controls through Screen Narrator's
 tray menu. Choose **Screen Narrator** under **Running in the bar**, open its action
-menu, then **Shortcut…** and select **Start / stop reading**, **Start reading**
-or **Stop reading**. Their menu labels stay fixed so saved shortcuts work in both
-reading states. The separate shell-plugin entry continues to open the popup.
+menu, then **Shortcut…** and select **Start / stop reading**, **Start reading**,
+**Stop reading** or **Pause / resume**. Their menu labels stay fixed so saved
+shortcuts work in both reading states. The menu also offers **Read active window
+again**, the reading area, and the submenus **Voice**, **Text language**, **Audio
+output** and **Reading speed**; each entry can be clicked or bound to a key. The
+submenus follow the current settings (Voice lists the voices for the current
+language). The separate shell-plugin entry continues to open the popup.
 
 ### Kokoro model updates
 
