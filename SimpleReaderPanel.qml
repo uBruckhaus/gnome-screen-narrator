@@ -72,7 +72,7 @@ Ui.Panel {
   readonly property bool engineLacksLanguage: selectedEngine === "Kokoro" ? !kokoroSupportsLanguage : selectedEngine === "Piper" && !piperSupportsLanguage
   readonly property string installLanguageName: languageInfo(installLanguage).label.split(" · ")[0]
   readonly property string activeVoiceLabel: config.provider === "Online" ? (config.online_voice || "No voice") : voiceLabel(config.voice)
-  readonly property string providerSummary: "Active: " + (activeEngine === "Online" ? "Speech server · " + (config.online_endpoint || "") : activeEngine + " · Local") + "\n" + activeVoiceLabel + " · " + languageInfo(config.language).label + " · " + (backendReady && voiceReady ? "Ready" : "Setup needed")
+  readonly property string providerSummary: "Active: " + (activeEngine === "Online" ? "Speech server · " + (config.online_endpoint || "") : activeEngine + " · Local") + "\n" + activeVoiceLabel + " · " + languageInfo(config.language).label + " · " + (!(backendReady && voiceReady) ? "Setup needed" : state.can_start === false ? "Not ready" : "Ready to read")
   function engineForVoice(voice) {
     var id = voice || ""
     return id.indexOf("piper") >= 0 || id.indexOf("fast") >= 0 ? "Piper" : id.indexOf("qwen") >= 0 ? "Qwen" : "Kokoro"
@@ -269,9 +269,16 @@ Ui.Panel {
             }
             Row {
               width: parent.width; spacing: Style.spacing.md
-              Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "▶  Start"; tooltipText: "Start reading the focused window (or right-click the bar icon)"; bordered: true; selected: !root.enabledReader && enabled; enabled: root.loaded && !root.setupBusy && !root.state.kokoro_checking && !root.state.installing_kokoro && root.backendReady && root.voiceReady && !root.enabledReader; onClicked: root.request({command: "on"}) }
+              Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "▶  Start"; tooltipText: "Start reading the focused window (or right-click the bar icon)"; bordered: true; selected: !root.enabledReader && enabled; enabled: root.loaded && !root.setupBusy && !root.state.kokoro_checking && !root.state.installing_kokoro && root.backendReady && root.voiceReady && root.state.can_start !== false && !root.enabledReader; onClicked: root.request({command: "on"}) }
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: root.state.paused ? "▶  Resume" : "❚❚  Pause"; bordered: true; enabled: root.enabledReader; onClicked: root.request({command: "pause"}) }
               Ui.Button { focusable: true; width: (parent.width - 2 * Style.spacing.md) / 3; text: "■  Stop"; tooltipText: "Stop reading (or right-click the bar icon)"; bordered: true; selected: root.enabledReader; enabled: root.enabledReader; onClicked: root.request({command: "off"}) }
+            }
+            Column {
+              width: parent.width; spacing: Style.space(2); visible: !root.enabledReader && (root.state.checks || []).length > 0
+              Repeater {
+                model: root.state.checks || []
+                Text { required property var modelData; width: parent.width; text: (modelData.ok ? "✓  " : "✗  ") + modelData.label + (modelData.ok ? "" : " — " + modelData.problem); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: modelData.ok ? Color.foreground : Theme.Color.accent; opacity: modelData.ok ? 0.75 : 1; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+              }
             }
             Text { width: parent.width; text: "Status: " + (root.message === "Off" ? "not reading" : root.message); textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
             Ui.Dropdown { id: activeProviderPicker; width: parent.width; label: "Speech provider"; options: root.providerOptions(); value: root.activeEngine; enabled: !root.enabledReader && !root.setupBusy; onChanged: { root.manageProvider(value); activeProviderPicker.value = Qt.binding(function() { return root.activeEngine }) } }

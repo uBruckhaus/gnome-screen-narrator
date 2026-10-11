@@ -119,6 +119,23 @@ def plain_text(text, limit=300):
     return re.sub(r'[<>&\x00-\x1f\x7f]+', ' ', str(text)).strip()[:limit]
 
 
+_OCR_LANGUAGES = {'checked': 0.0, 'names': set()}
+
+
+def ocr_languages():
+    """Tesseract languages installed system-wide or in the reader's tessdata (cached briefly)."""
+    if time.monotonic() - _OCR_LANGUAGES['checked'] > 30:
+        names = set()
+        try:
+            names = set(subprocess.run(['tesseract', '--list-langs'], capture_output=True, text=True,
+                                       timeout=5).stdout.split()[1:])
+        except (OSError, subprocess.SubprocessError):
+            pass
+        names |= {path.stem for path in (DATA / 'tessdata').glob('*.traineddata')}
+        _OCR_LANGUAGES.update(checked=time.monotonic(), names=names)
+    return _OCR_LANGUAGES['names']
+
+
 def desktop_notify(summary, body='', icon=None, timeout=None):
     """Send every notification through one sanitized notify-send call."""
     args = ['notify-send', '-a', 'Screen Narrator']
@@ -489,6 +506,30 @@ class Reader(QObject):
         temp.write_text(json.dumps(getattr(self, 'preview_original', None) or self.settings, indent=2) + '\n')
         temp.replace(CONFIG)
 
+    def readiness_checks(self):
+        """What must be in place before reading can start, shown in the popup."""
+        checks = []
+        def check(ok, label, problem):
+            checks.append(dict(ok=bool(ok), label=label, problem='' if ok else problem))
+        spoken = languages.name(self.voice_language())
+        if self.settings.get('provider', 'Local') == 'Online':
+            check(self.settings.get('online_model') and self.settings.get('online_voice'), 'Speech server',
+                  'Choose a speech model and voice under Add / manage speech providers.')
+        else:
+            voice_ok = voice_is_available(self.settings['voice'], self.settings) and \
+                self.settings['voice'] in available_voices(self.voice_language(), self.settings)
+            check(voice_ok, 'Voice · ' + spoken, 'No ' + spoken + ' voice selected or installed. Use Add / manage speech providers.')
+        ocr = languages.ocr_language(self.settings['language'])
+        check(ocr in ocr_languages(), 'Text recognition · ' + languages.name(self.settings['language']),
+              'Text recognition data for ' + languages.name(self.settings['language']) + ' is missing. Run setup for this language.')
+        check(self.settings.get('audio_output', 'auto') in {o['value'] for o in outputs()}, 'Audio output',
+              'The selected audio output is not connected. Choose another output.')
+        checks.extend(self.extra_checks())
+        return checks
+
+    def extra_checks(self):
+        return []
+
     def voice_language(self):
         return self.settings['language']
 
@@ -610,6 +651,11 @@ class Reader(QObject):
                 raise ValueError('Choose an online speech model and voice')
         if enabled and self.settings.get('provider', 'Local') == 'Local' and not voice_is_available(self.settings['voice'], self.settings):
             raise ValueError('Selected voice is unavailable. Install its runtime and required models.')
+        if enabled and not getattr(self, 'testing_voice', False):
+            problems = [c['problem'] for c in self.readiness_checks() if not c['ok']]
+            if problems:
+                desktop_notify('Screen Narrator cannot start', problems[0])
+                raise ValueError(problems[0])
         if getattr(self, 'preview_original', None) is not None:
             self.settings = self.preview_original
             self.online_token = self.preview_token
@@ -1531,7 +1577,7 @@ class Reader(QObject):
                             probed_settings=self.probed_settings, probed_voices=self.probed_voices,
                             piper_installations={lang: installed_settings(DATA, lang) for lang in PIPER if engine_ready(installed_settings(DATA, lang), 'piper')},
                             audio_outputs=outputs(), verified_provider=getattr(self, 'verified_provider', None),
-                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
+                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), checks=(checks := self.readiness_checks()), can_start=all(c['ok'] for c in checks), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
                             queued=len(self.queue), processes=[t.proc.processId() for t in self.speech_tasks])
         except (ValueError, KeyError, TypeError) as error:
             response = {'error': str(error)}

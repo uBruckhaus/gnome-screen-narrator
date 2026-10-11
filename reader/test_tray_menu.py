@@ -57,7 +57,7 @@ class StartStopTests(unittest.TestCase):
         return SimpleNamespace(provider_status='', installing_kokoro=False, settings=dict(DEFAULTS),
                                preview_original=None, testing_voice=False, enabled=enabled, paused=False,
                                stop_speech=Mock(), tasks=set(), update=Mock(), timer=Mock(),
-                               kokoro_worker=Mock(), translation_worker=Mock(), overlay=Mock(), scan=Mock())
+                               kokoro_worker=Mock(), translation_worker=Mock(), overlay=Mock(), scan=Mock(), readiness_checks=Mock(return_value=[]))
 
     def test_start_with_notification_starts_scanning(self):
         subject = self.subject()
@@ -77,3 +77,37 @@ class StartStopTests(unittest.TestCase):
             Reader.set_enabled(subject, False, notify=True)
         self.assertFalse(subject.enabled)
         subject.timer.stop.assert_called_once()
+
+
+class ReadinessTests(unittest.TestCase):
+    def subject(self, **settings):
+        from reader import DEFAULTS
+        values = dict(DEFAULTS, language='de', voice='kokoro-martin', provider='Local', audio_output='auto')
+        values.update(settings)
+        return SimpleNamespace(settings=values, voice_language=lambda: values['language'], extra_checks=lambda: [])
+
+    def run_checks(self, subject, voice_ok=True, ocr={'deu', 'eng'}, outs=('auto',)):
+        with patch('reader.voice_is_available', return_value=voice_ok), \
+             patch('reader.available_voices', return_value={'kokoro-martin': ('Martin', 'kokoro', 'martin')} if voice_ok else {}), \
+             patch('reader.ocr_languages', return_value=set(ocr)), \
+             patch('reader.outputs', return_value=[dict(value=v, label=v) for v in outs]):
+            return Reader.readiness_checks(subject)
+
+    def test_all_ready(self):
+        checks = self.run_checks(self.subject())
+        self.assertTrue(all(c['ok'] for c in checks))
+        self.assertEqual([c['label'] for c in checks], ['Voice · German', 'Text recognition · German', 'Audio output'])
+
+    def test_each_problem_is_named(self):
+        self.assertIn('No German voice', self.run_checks(self.subject(), voice_ok=False)[0]['problem'])
+        self.assertIn('Text recognition data for German', self.run_checks(self.subject(), ocr={'eng'})[1]['problem'])
+        self.assertIn('not connected', self.run_checks(self.subject(audio_output='pulse/gone'))[2]['problem'])
+
+    def test_start_is_refused_with_the_reason(self):
+        subject = StartStopTests().subject()
+        subject.readiness_checks = Mock(return_value=[dict(ok=False, label='Voice', problem='No German voice selected')])
+        with patch('reader.voice_is_available', return_value=True), patch('reader.subprocess.Popen'), \
+             self.assertRaisesRegex(ValueError, 'No German voice'):
+            Reader.set_enabled(subject, True, notify=True)
+        self.assertFalse(subject.enabled)
+        subject.timer.start.assert_not_called()
