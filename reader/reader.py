@@ -1127,9 +1127,12 @@ class Reader(QObject):
                 px, py, pw, ph, self.pdf_cut_off = page
                 ax, ay, aw, ah = self.capture_area
                 scale = max(1e-6, self.image_width(RUNTIME / 'window.png') / max(1, aw))
-                crop = ['-crop', f'{pw}x{ph}+{px}+{py}', '+repage']
+                # No -normalize on a page: it would stretch the faint wallpaper that shows
+                # through a slightly transparent window into dark blotches.
+                crop = ['-crop', f'{pw}x{ph}+{px}+{py}', '+repage', '-colorspace', 'Gray']
                 self.capture_area = (round(ax + px / scale), round(ay + py / scale), round(pw / scale), round(ph / scale))
-        Task(self, ['magick', RUNTIME / 'window.png', *crop, '-colorspace', 'Gray', '-normalize', '-strip', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
+        adjust = crop or ['-colorspace', 'Gray', '-normalize']
+        Task(self, ['magick', RUNTIME / 'window.png', *adjust, '-strip', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
 
     @staticmethod
     def image_width(path):
