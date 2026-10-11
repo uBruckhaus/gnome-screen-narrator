@@ -54,7 +54,7 @@ class ModelUpdateTests(unittest.TestCase):
             active=Path(folder)/'active-models.json';base=Path(folder)
             assets=[(a[0],'https://example.test/','b'*64) for a in updates.ASSETS['de']]
             model=Mock();model.get_voices.return_value=['martin'];model.create.return_value=([.1],24000)
-            with patch.object(updates,'FOLDER',base), patch.object(updates,'ACTIVE',active), patch('kokoro_updates.upstream',return_value=('new',assets)), patch('kokoro_updates.download_asset'), patch('kokoro_onnx.Kokoro',return_value=model), patch('kokoro_updates.write_launcher'):
+            with patch.object(updates,'FOLDER',base), patch.object(updates,'ACTIVE',active), patch('kokoro_updates.upstream',return_value=('new',assets)), patch('kokoro_updates.download_asset'), patch('kokoro_compat.load',return_value=model), patch('kokoro_updates.write_launcher'):
                 result=updates.update('de')
             self.assertFalse(result['available'])
             self.assertEqual(json.loads(active.read_text())['de']['revision'],'new')
