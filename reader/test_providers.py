@@ -73,7 +73,9 @@ class ProviderTests(unittest.TestCase):
     def test_unavailable_optional_engines_are_not_advertised(self):
         with patch('reader.voice_is_available',side_effect=lambda key:key.startswith('kokoro-')):
             self.assertEqual(set(available_voices('de')),{'kokoro-martin'})
-            self.assertEqual(set(available_voices('en')),{'kokoro-heart','kokoro-nicole','kokoro-adam'})
+            self.assertEqual(set(available_voices('en')),{'kokoro-heart','kokoro-nicole','kokoro-adam','kokoro-bf_emma','kokoro-bm_george'})
+            self.assertEqual(set(available_voices('es')),{'kokoro-ef_dora','kokoro-em_alex'})
+            self.assertEqual(set(available_voices('nl')),set())
 
 
 if __name__ == '__main__':

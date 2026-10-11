@@ -1,11 +1,11 @@
 {
   "schemaVersion": 1,
   "id": "ubruckhaus.simple-reader",
-  "name": "Simple Reader",
+  "name": "Screen Narrator",
   "version": "0.3.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Read visible text aloud from the Omarchy bar. Local OCR, Kokoro voices, Kindle page controls and optional online speech.",
+  "description": "Read screen text and Kindle pages aloud in 51 languages. Local OCR and speech with guided Kokoro or Piper setup, highlighting and reading controls.",
   "kinds": [
     "bar-widget"
   ],
@@ -13,7 +13,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Simple Reader",
+    "displayName": "Screen Narrator",
     "category": "Accessibility",
     "defaultSection": "right",
     "allowMultiple": false
@@ -24,6 +24,8 @@
     "accessibility",
     "ocr",
     "tts",
+    "narrator",
+    "multilingual",
     "kindle",
     "quickshell"
   ]

@@ -2,6 +2,8 @@
 """Kindle Reader Kokoro-82M TTS Wrapper."""
 import argparse
 import os
+import json
+import contextlib
 import sys
 from pathlib import Path
 
@@ -13,20 +15,19 @@ if str(KOKORO_DIR) not in sys.path:
 import numpy as np
 import soundfile as sf
 from kokoro_onnx import Kokoro
+from kokoro_updates import model_paths
+from languages import kokoro_phonemes
 
 # Cache Kokoro model instances across warm calls if needed, or instantiate per-call
 _MODELS = {}
 
 def get_kokoro(voice: str):
-    if voice == 'martin':
-        model_path = str(KOKORO_DIR / 'kokoro-martin.onnx')
-        voices_path = str(KOKORO_DIR / 'voices-martin.npz')
-    else:
-        model_path = str(KOKORO_DIR / 'kokoro-v1.0.onnx')
-        voices_path = str(KOKORO_DIR / 'voices-v1.0.bin')
+    # Martin needs the German model; every other voice is in the standard model.
+    model_path, voices_path = map(str, model_paths('de' if voice == 'martin' else 'en'))
 
     key = (model_path, voices_path)
     if key not in _MODELS:
+        _MODELS.clear()  # Keep only the selected language model resident.
         _MODELS[key] = Kokoro(model_path, voices_path)
     return _MODELS[key]
 
@@ -50,8 +51,11 @@ def main():
     if not text:
         sys.exit(0)
 
-    voice = args.voice
-    lang = "en-us" if args.lang == "en" else args.lang
+    synthesize(text, args.voice, args.lang, args.speed, args.output)
+
+
+def synthesize(text, voice, language, speed, output):
+    lang = kokoro_phonemes(language, voice)
 
     # Normalize German text if reading in German with Martin
     if voice == 'martin' or lang.startswith('de'):
@@ -62,7 +66,7 @@ def main():
             pass
 
     # Ensure speed is clamped within valid ONNX range
-    speed = max(0.5, min(2.0, float(args.speed)))
+    speed = max(0.5, min(2.0, float(speed)))
 
     kokoro = get_kokoro(voice)
     try:
@@ -74,9 +78,27 @@ def main():
         else:
             raise
 
-    out_path = Path(args.output)
+    out_path = Path(output)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     sf.write(str(out_path), samples, sample_rate)
 
+
+def serve():
+    """Keep the model resident for successive chunks; stdin EOF releases it."""
+    for line in sys.stdin:
+        try:
+            request = json.loads(line)
+            # Libraries may print diagnostics; stdout is reserved for replies.
+            with contextlib.redirect_stdout(sys.stderr):
+                synthesize(request['text'], request['voice'], request['language'],
+                           1.0, request['output'])
+            reply = {'code': 0, 'error': ''}
+        except Exception as error:
+            reply = {'code': 1, 'error': str(error)}
+        print(json.dumps(reply), flush=True)
+
 if __name__ == "__main__":
-    main()
+    if sys.argv[1:] == ['--worker']:
+        serve()
+    else:
+        main()

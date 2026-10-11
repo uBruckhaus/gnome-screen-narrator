@@ -42,6 +42,17 @@ class ReaderTests(unittest.TestCase):
         subject.tray.showMessage.assert_not_called()
         self.assertEqual(notify.call_args.args[0][0], 'notify-send')
 
+    def test_error_notification_strips_markup(self):
+        from reader import Reader
+        subject = SimpleNamespace(update=Mock(), last_error='', tray=Mock())
+        hostile = 'Provider said <img src="http://x/y.png"> &amp;\r\n\x1b[31m' + 'A' * 1000
+        with patch('reader.subprocess.Popen') as notify:
+            Reader.fail(subject, hostile)
+        args = notify.call_args.args[0]
+        for text in args[1:]:
+            self.assertFalse(set(text) & set('<>&\r\n\x1b'))
+        self.assertLessEqual(len(args[-1]), 300)
+
     def test_new_page_is_not_a_duplicate(self):
         self.assertTrue(same_text('Die Venus.\nEin neuer Tag.', 'Die Venus. Ein neuer Tag.'))
         self.assertFalse(same_text('Die Venus. Ein neuer Tag.', 'Der Mars. Eine andere Welt.'))
@@ -196,3 +207,119 @@ class ReaderTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+class FocusRegressionTests(unittest.TestCase):
+    def subject(self):
+        return SimpleNamespace(target='0x123', pending_window=None, epoch=7,
+            scanning=True, scan=Mock(), stop_speech=Mock(), playing_file=None, captured=Mock(),
+            capture_window_geometry=([10, 20], [800, 600]),
+            target_title='Kindle', target_class='kindle',
+            custom_area=(10, 20, 800, 600), overlay=Mock())
+
+    def window(self, address):
+        import json
+        return json.dumps(dict(address=address, pid=99999, at=[10, 20],
+                               size=[800, 600], title='Kindle', **{'class': 'kindle'}))
+
+    def test_single_focus_change_keeps_current_audio(self):
+        from reader import Reader
+        subject = self.subject()
+        with patch('reader.QTimer.singleShot') as timer, patch('reader.time.monotonic', return_value=10):
+            Reader.got_window(subject, 0, self.window('0x456'), '')
+        subject.stop_speech.assert_not_called()
+        self.assertEqual(subject.target, '0x123')
+        self.assertFalse(subject.scanning)
+        self.assertEqual(timer.call_args.args[0], 350)
+
+    def test_returning_focus_discards_pending_change(self):
+        from reader import Reader
+        subject = self.subject()
+        subject.pending_window = ('0x456', 10)
+        with patch('reader.Task'):
+            Reader.got_window(subject, 0, self.window('0x123'), '')
+        self.assertIsNone(subject.pending_window)
+        subject.stop_speech.assert_not_called()
+
+    def test_confirmed_change_switches_window(self):
+        from reader import Reader
+        subject = self.subject()
+        subject.pending_window = ('0x456', 10)
+        subject.update = Mock()
+        with patch('reader.Task'), patch('reader.time.monotonic', return_value=10.5):
+            Reader.got_window(subject, 0, self.window('0x456'), '')
+        subject.stop_speech.assert_called_once()
+        self.assertEqual(subject.target, '0x456')
+
+    def test_page_turn_does_not_type_into_different_window(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, epoch=7,
+            target='0x123', scan=Mock(), update=Mock(), page_turn_sent=Mock())
+        with patch('reader.Task') as task:
+            Reader.do_page_turn(subject)
+            callback = task.call_args.args[2]
+            callback(0, self.window('0x456'), '')
+        self.assertEqual(task.call_count, 1)
+        subject.scan.assert_called_once()
+
+    def test_obsolete_focus_confirmation_cannot_restart_scan(self):
+        from reader import Reader
+        subject = self.subject()
+        with patch('reader.QTimer.singleShot') as timer:
+            Reader.got_window(subject, 0, self.window('0x456'), '')
+        subject.epoch += 1
+        timer.call_args.args[1]()
+        subject.scan.assert_not_called()
+
+    def test_deferred_page_turn_resumes_after_focus_returns(self):
+        from reader import Reader
+        text = 'The same Kindle page remains visible while the reader regains focus.'
+        subject = SimpleNamespace(scanning=True, last_text=text, candidate='',
+            status='Waiting for the reading window', is_speaking=lambda: False,
+            on_page_finished=Mock())
+        with patch('reader.Path.read_text'), patch('reader.visible_ocr', return_value=(text, '')):
+            Reader.recognized(subject, 0, '', '')
+        subject.on_page_finished.assert_called_once()
+
+class PageLatencyTests(unittest.TestCase):
+    def test_short_opening_preserves_every_word(self):
+        from reader import page_chunks
+        text = 'A first sentence ends here. ' + 'The next sentence has a longer explanation about this story. '*8
+        result=page_chunks(text)
+        self.assertLessEqual(len(result[0]),110)
+        self.assertEqual(' '.join(' '.join(result).split()), ' '.join(text.split()))
+
+    def test_stability_checks_images_before_single_ocr_pass(self):
+        from reader import Reader
+        subject=SimpleNamespace(scanning=True, image_candidate=None, ocr_image=None,
+            epoch=1, scan=Mock(), settings={'language':'en'}, recognized=Mock())
+        with patch('reader.Path.read_bytes',return_value=b'new page'), patch('reader.QTimer.singleShot') as timer, patch('reader.Task') as task:
+            Reader.prepared(subject,0,'','')
+            task.assert_not_called()
+            self.assertFalse(subject.scanning)
+            subject.scanning=True
+            Reader.prepared(subject,0,'','')
+            task.assert_called_once()
+            self.assertTrue(subject.capture_stable)
+            self.assertEqual(task.call_args.args[0],subject)
+
+    def test_unchanged_image_skips_ocr(self):
+        import hashlib
+        from reader import Reader
+        subject=SimpleNamespace(scanning=True, image_candidate=None,
+            ocr_image=hashlib.sha256(b'same page').digest(), status='Reading')
+        with patch('reader.Path.read_bytes',return_value=b'same page'), patch('reader.Task') as task:
+            Reader.prepared(subject,0,'','')
+        self.assertFalse(subject.scanning)
+        task.assert_not_called()
+
+    def test_image_confirmed_page_does_not_need_second_ocr(self):
+        from reader import Reader
+        text='A new page with enough words for the reader to recognize and speak.'
+        subject=SimpleNamespace(scanning=True,last_text='The old page',candidate='',
+            capture_stable=True, image_candidate=b'new', stop_speech=Mock(),
+            settings={'highlight':False}, pump_pipeline=Mock())
+        with patch('reader.Path.read_text'), patch('reader.visible_ocr',return_value=(text,'')),patch('reader.QTimer.singleShot') as timer:
+            Reader.recognized(subject,0,'','')
+        timer.assert_not_called()
+        subject.pump_pipeline.assert_called_once()
+        self.assertEqual(subject.last_text,text)

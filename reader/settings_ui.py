@@ -1,4 +1,4 @@
-"""Compact Omarchy-style settings and integrated manual for Simple Reader."""
+"""Compact Omarchy-style settings and integrated manual for Screen Narrator."""
 import tomllib
 from pathlib import Path
 
@@ -9,11 +9,11 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
 
 MANUAL = [
     ('1. Reading & Tray Controls', [
-        'Focus the window containing the text, then click Start reader in the Omarchy bar popup. Existing reader shortcuts remain available.',
+        'Focus the window containing the text, then click Read active window in the Omarchy bar popup. Existing reader shortcuts remain available.',
         'Right-click the tray icon for voice, speed, Read again, settings and quit.',
         'Middle-click the tray icon to pause or resume. Off stops speech and reader-owned work.']),
     ('2. Voice, Language & Speed', [
-        'Choose a local voice and select German or English as the text language.',
+        'Choose the text language and a local voice for it. Kokoro covers nine languages, Piper the others (51 in total).',
         'Kokoro is the default neural engine; Piper Fast is the lower-latency option. Qwen voices can need a longer warm-up.',
         'Set reading speed from 0.6× to 2×. Save applies your changes; Cancel discards uncommitted settings.']),
     ('3. Continuous Reading & Kindle', [
@@ -30,7 +30,7 @@ MANUAL = [
         'No speech: check that narration is on, the correct window is focused, and the selected local voice is installed.',
         'Unwanted text: select a smaller reading area or enable Kindle cropping.',
         'Wrong pronunciation: check the text language and try another voice.',
-        'OCR and speech processing run locally. Turning narration off stops reader-owned capture and speech processes.'])
+        'OCR and local speech run locally; configured online speech sends recognized text to your provider. Turning narration off stops reader-owned capture and speech processes.'])
 ]
 
 
@@ -69,7 +69,7 @@ def build_settings_layout(dialog):
     outer.setContentsMargins(14, 14, 14, 14)
     outer.setSpacing(12)
     header = QHBoxLayout()
-    title = QLabel('Simple Reader')
+    title = QLabel('Screen Narrator')
     title.setObjectName('pluginTitle')
     manual_button = QPushButton('📖 User Manual')
     manual_button.setCheckable(True)

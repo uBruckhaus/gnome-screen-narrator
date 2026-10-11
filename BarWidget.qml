@@ -18,7 +18,7 @@ Ui.BarWidget {
     bar: root.bar
     text: "\uf025"
     active: panel.state.enabled === true
-    tooltipText: "Simple Reader · " + (panel.state.status || "Off") + "\nClick for reading controls"
+    tooltipText: "Screen Narrator · " + (panel.state.status || "Off") + "\n" + panel.providerSummary + "\nClick for reading controls"
     onPressed: panel.toggle()
   }
 }

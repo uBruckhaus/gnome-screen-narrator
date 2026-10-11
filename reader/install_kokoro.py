@@ -9,9 +9,12 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
+from languages import KOKORO, kokoro_family
 
 STANDARD = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
-GERMAN = 'https://huggingface.co/Godelaune/Kokoro-82M-ONNX-German-Martin/resolve/main/'
+GERMAN_REVISION = 'a1cba7fbf0e72fbae38f0a3a48ce0dc8e6077804'
+GERMAN = 'https://huggingface.co/Godelaune/Kokoro-82M-ONNX-German-Martin/resolve/' + GERMAN_REVISION + '/'
+# Model families: 'de' is the German Martin model, 'en' the standard multilingual model.
 ASSETS = {
     'de': [('kokoro-martin.onnx', GERMAN, 'c302f1d8bc7adf40a842cb550e18c39a5026bdb1afdd29dbb700b501cb49276b'),
            ('voices-martin.npz', GERMAN, '5b9c8553398d7abf67498ce500c186cefaa7b68fed3e3d415da5380670105acd')],
@@ -52,9 +55,29 @@ def download_asset(name, base, digest, folder, report):
         Path(temporary).unlink(missing_ok=True)
 
 
+def write_launcher():
+    launcher = Path.home() / '.local/bin/kindle-kokoro-tts'
+    if launcher.exists():
+        try:
+            previous = launcher.read_text()
+        except (OSError, UnicodeError):
+            return
+        markers = ('Kindle Reader Kokoro-82M TTS Wrapper', 'Managed by Read Aloud', 'Managed by ubruckhaus.simple-reader')
+        if not any(marker in previous for marker in markers):
+            return
+    launcher.parent.mkdir(parents=True, exist_ok=True)
+    source = Path(__file__).with_name('kokoro_tts.py').resolve()
+    launcher.write_text('#!' + sys.executable + '\n# Managed by ubruckhaus.simple-reader\n' +
+                        'import sys, runpy\n' +
+                        'sys.path.insert(0, ' + repr(str(source.parent)) + ')\n' +
+                        'runpy.run_path(' + repr(str(source)) + ', run_name="__main__")\n')
+    launcher.chmod(0o755)
+
+
 def install(language, progress=None, check_only=False):
-    if language not in ASSETS:
-        raise ValueError('Choose German or English / multilingual')
+    if language not in KOKORO:
+        raise ValueError('Kokoro has no voice for this language; use Piper')
+    language = kokoro_family(language)
     folder = Path.home() / '.local/share/kindle-reader/kokoro'
     def report(message):
         print(message, flush=True)
@@ -64,28 +87,32 @@ def install(language, progress=None, check_only=False):
             temp.write_text(json.dumps({'message': message}))
             temp.replace(path)
     dependencies = all(importlib.util.find_spec(name) for name in ('kokoro_onnx', 'soundfile', 'onnxruntime'))
+    from kokoro_updates import active_models, model_paths, update
+    active = active_models().get(language, {})
     if check_only:
+        if active:
+            return dependencies and all(valid_asset(path, active.get('digests', {}).get(path.name, '')) for path in model_paths(language))
         return dependencies and all(valid_asset(folder / name, digest) for name, _, digest in ASSETS[language])
     folder.mkdir(parents=True, exist_ok=True)
     if not dependencies:
         report('Installing Kokoro runtime dependencies…')
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'kokoro-onnx==0.4.7', 'soundfile==0.14.0'],
                        check=True, timeout=900)
-    for asset in ASSETS[language]:
-        download_asset(*asset, folder, report)
-    launcher = Path.home() / '.local/bin/kindle-kokoro-tts'
-    if not launcher.exists():
-        launcher.parent.mkdir(parents=True, exist_ok=True)
-        source = Path(__file__).with_name('kokoro_tts.py').read_text().split('\n', 1)[1]
-        launcher.write_text('#!' + sys.executable + '\n' + source)
-        launcher.chmod(0o755)
+    # Setup/repair must not silently revert a model installed by Update.
+    if active:
+        if not all(valid_asset(path, active.get('digests', {}).get(path.name, '')) for path in model_paths(language)):
+            update(language, progress)
+    else:
+        for asset in ASSETS[language]:
+            download_asset(*asset, folder, report)
+    write_launcher()
     report('Kokoro installed. Select a voice to start reading.')
     return True
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--language', choices=ASSETS, required=True)
+    parser.add_argument('--language', choices=sorted(KOKORO), required=True)
     parser.add_argument('--progress')
     parser.add_argument('--check', action='store_true')
     args = parser.parse_args()

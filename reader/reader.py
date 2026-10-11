@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Local, active-window OCR narration with a StatusNotifier tray icon."""
 import difflib
+import hashlib
 import importlib.util
 import json
 import os
@@ -15,6 +16,13 @@ from pathlib import Path
 from highlighting import HighlightOverlay, chunk_rectangles, visible_ocr
 from settings_ui import build_settings_layout, section_heading
 from online_provider import endpoint_url, saved_token, store_token
+from speech_worker import SpeechWorker
+from engine_config import PATH_KEYS, normalize_path, engine_files, engine_ready
+from kokoro_updates import model_paths
+from audio_output import outputs, validate_output, playback_output
+from install_piper import installed_settings
+import languages
+from languages import KOKORO, PIPER, kokoro_voice_language
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Qt, QLockFile
 from PySide6.QtGui import QActionGroup, QColor, QIcon, QPainter, QPen, QPixmap
@@ -28,6 +36,8 @@ CONFIG = HOME / '.config/kindle-reader/settings.json'
 RUNTIME = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'kindle-reader'
 QWEN_MODEL_DIR = Path(os.environ.get('QWEN_TTS_MODEL_DIR', DATA / 'models/Qwen3-TTS-1.7B'))
 VOICES = {
+    'piper-custom': ('Custom Piper voice', 'piper', 'custom'),
+    'qwen-custom': ('Custom Qwen voice', 'qwen', 'custom'),
     'kokoro-martin': ('Martin · male · Kokoro', 'kokoro', 'martin'),
     'kokoro-heart': ('Heart · female · Kokoro', 'kokoro', 'af_heart'),
     'kokoro-nicole': ('Nicole · female · Kokoro', 'kokoro', 'af_nicole'),
@@ -38,15 +48,27 @@ VOICES = {
     'qwen-kerstin': ('Kerstin · female · Qwen 1.7B', 'qwen', 'kerstin-reference.wav'),
     'qwen-thorsten': ('Thorsten · male · Qwen 1.7B', 'qwen', 'thorsten-reference.wav'),
 }
-DEFAULTS = dict(voice='kokoro-martin', speed=1.0, language='de', follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False)
+# Kokoro voices for the other catalog languages; legacy keys above stay unchanged.
+for _code, (_family, _phonemes, _voices) in KOKORO.items():
+    for _voice, _label in _voices:
+        if not any(entry[2] == _voice for entry in VOICES.values()):
+            VOICES['kokoro-' + _voice] = (_label + ' · Kokoro', 'kokoro', _voice)
+DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='')
 
 
-def voice_is_available(key):
+def voice_is_available(key, settings=None):
     """Offer only voices with their own usable engine and required assets."""
     entry = VOICES.get(key)
     if not entry:
         return False
     _, engine, reference = entry
+    if reference == 'custom':
+        if settings is None:
+            try:
+                settings = json.loads(CONFIG.read_text())
+            except (OSError, ValueError):
+                settings = {}
+        return engine_ready(settings, engine)
     def executable(path):
         return Path(path).is_file() and os.access(path, os.X_OK)
     def present(path):
@@ -59,8 +81,7 @@ def voice_is_available(key):
             return False
         if not all(importlib.util.find_spec(name) is not None for name in ('kokoro_onnx', 'soundfile', 'onnxruntime')):
             return False
-        files = ('kokoro-martin.onnx', 'voices-martin.npz') if reference == 'martin' else ('kokoro-v1.0.onnx', 'voices-v1.0.bin')
-        return all(present(DATA / 'kokoro' / name) for name in files)
+        return all(present(path) for path in model_paths(kokoro_voice_language(reference) or 'en'))
     if engine == 'piper':
         return executable(DATA / 'venv/bin/piper') and all(present(DATA / 'voices' / name) for name in (reference, reference + '.json'))
     if engine == 'qwen':
@@ -72,15 +93,43 @@ def voice_is_available(key):
     return False
 
 
-def available_voices(language=None):
+def available_voices(language=None, settings=None):
     def matches(value):
         _, engine, reference = value
-        if not language or engine == 'qwen':
+        if not language or engine == 'qwen' or reference == 'custom':
             return True
         if engine == 'kokoro':
-            return (reference == 'martin') == (language == 'de')
+            return kokoro_voice_language(reference) == language
         return reference.startswith(language + '_')
-    return {key: value for key, value in VOICES.items() if voice_is_available(key) and matches(value)}
+    result = {key: value for key, value in VOICES.items() if (voice_is_available(key, settings) if settings is not None else voice_is_available(key)) and matches(value)}
+    if settings and 'piper-custom' in result:
+        model = Path(settings.get('piper_model') or '').name
+        label = next((piper_file.split('-')[1].replace('_', ' ').title() + ' · ' + languages.name(code) + ' · Piper'
+                      for code, (_, piper_file, *_rest) in PIPER.items() if piper_file == model),
+                     'Piper · ' + (model or 'custom voice'))
+        result['piper-custom'] = (label, 'piper', 'custom')
+    if settings and 'qwen-custom' in result:
+        speaker = Path(settings.get('qwen_speaker') or '').stem
+        result['qwen-custom'] = ('Qwen · ' + (speaker or 'custom speaker'), 'qwen', 'custom')
+    return result
+
+
+def plain_text(text, limit=300):
+    """Notification daemons render markup, so drop markup and control characters."""
+    return re.sub(r'[<>&\x00-\x1f\x7f]+', ' ', str(text)).strip()[:limit]
+
+
+def notify(summary, body='', icon=None, timeout=None):
+    """Send every notification through one sanitized notify-send call."""
+    args = ['notify-send', '-a', 'Screen Narrator']
+    if icon:
+        args += ['-i', icon]
+    if timeout:
+        args += ['-t', str(timeout)]
+    args.append(plain_text(summary))
+    if body:
+        args.append(plain_text(body))
+    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
 def clean_text(text):
@@ -185,6 +234,12 @@ def chunks(text, limit=250):
         if current:
             result.append(current)
     return [chunk for chunk in result if any(c.isalnum() for c in chunk)]
+
+
+def page_chunks(text):
+    result = chunks(text)
+    # Start with a short sentence/clause; retain normal lookahead chunk sizes.
+    return chunks(result[0], 110) + result[1:] if result else []
 
 
 def same_text(a, b, threshold=0.90):
@@ -298,15 +353,25 @@ class Reader(QObject):
         self.app = app
         self.tasks = set()
         self.speech_tasks = set()
+        self.testing_voice = False
+        self.preview_original = None
+        self.preview_token = None
+        self.preview_settings = None
+        self.verified_provider = None
+        self.verified_token_digest = None
+        self.probed_settings = {}
+        self.probed_voices = []
+        self.kokoro_worker = SpeechWorker(self)
+        app.aboutToQuit.connect(self.kokoro_worker.close)
         self.settings = DEFAULTS.copy()
         try:
             saved = json.loads(CONFIG.read_text())
             self.settings.update({k: saved[k] for k in DEFAULTS if k in saved})
         except (OSError, ValueError, TypeError):
             pass
-        if not voice_is_available(self.settings['voice']):
+        if not voice_is_available(self.settings['voice'], self.settings):
             self.settings['voice'] = next((key for key, value in available_voices().items() if value[1] == 'kokoro'), DEFAULTS['voice'])
-        if self.settings['language'] not in ('de', 'en'):
+        if not languages.valid(self.settings['language']):
             self.settings['language'] = 'de'
         try:
             self.settings['speed'] = min(2., max(.6, float(self.settings['speed'])))
@@ -318,9 +383,15 @@ class Reader(QObject):
         self.models_loading = False
         self.installing_kokoro = False
         self.install_task = None
+        self.kokoro_checking = False
+        self.kokoro_updates = {}
         self.enabled = self.paused = self.scanning = False
         self.status = 'Off'
         self.target = ''
+        self.pending_window = None
+        self.image_candidate = None
+        self.ocr_image = None
+        self.capture_stable = False
         self.target_title = ''
         self.target_class = ''
         self.last_text = self.candidate = ''
@@ -351,10 +422,11 @@ class Reader(QObject):
 
         self.tray = QSystemTrayIcon(self)
         self.menu = QMenu()
-        self.toggle_action = self.menu.addAction('Turn ON Simple Reader')
+        self.toggle_action = self.menu.addAction('Start / stop reading')
         self.toggle_action.setCheckable(True)
         self.toggle_action.triggered.connect(lambda: self.set_enabled(not self.enabled, notify=True))
-        self.stop_action = self.menu.addAction('Turn OFF Simple Reader (Stop)', lambda: self.set_enabled(False, notify=True))
+        self.start_action = self.menu.addAction('Start reading', lambda: self.set_enabled(True, notify=True) if not self.enabled else None)
+        self.stop_action = self.menu.addAction('Stop reading', lambda: self.set_enabled(False, notify=True) if self.enabled else None)
         self.status_action = self.menu.addAction('Off')
         self.status_action.setEnabled(False)
         self.menu.addSeparator()
@@ -367,7 +439,7 @@ class Reader(QObject):
         self.voice_menu = self.menu.addMenu('Voice')
         self.voice_group = QActionGroup(self)
         self.voice_actions = {}
-        for key, (name, *_rest) in available_voices(self.settings['language']).items():
+        for key, (name, *_rest) in available_voices(self.settings['language'], self.settings).items():
             action = self.voice_menu.addAction(name)
             action.setCheckable(True)
             self.voice_group.addAction(action)
@@ -384,13 +456,13 @@ class Reader(QObject):
             self.speed_actions[rate] = action
         self.menu.addAction('Settings…', self.show_settings)
         self.menu.addSeparator()
-        self.menu.addAction('Quit Simple Reader', self.app.quit)
+        self.menu.addAction('Quit Screen Narrator', self.app.quit)
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self.activated)
 
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.scan)
-        self.timer.setInterval(2000)
+        self.timer.setInterval(600)
 
         self.server = QLocalServer(self)
         self.server.newConnection.connect(self.connection)
@@ -398,8 +470,9 @@ class Reader(QObject):
         self.server.listen(str(RUNTIME / 'control.sock'))
 
         self.update()
-        if os.environ.get("OCRVOX_BAR_WIDGET") != "1":
-            self.tray.show()
+        # Launch & Bind discovers shortcut actions through this standard tray
+        # menu, including when the reader's controls live in the bar widget.
+        self.tray.show()
 
     def is_speaking(self):
         return bool(self.player or self.tts_task or self.ready_file or self.queue)
@@ -413,17 +486,19 @@ class Reader(QObject):
     def save(self):
         CONFIG.parent.mkdir(parents=True, exist_ok=True)
         temp = CONFIG.with_suffix('.tmp')
-        temp.write_text(json.dumps(self.settings, indent=2) + '\n')
+        temp.write_text(json.dumps(getattr(self, 'preview_original', None) or self.settings, indent=2) + '\n')
         temp.replace(CONFIG)
 
     def update(self, status=None):
         if status:
+            if status != self.status:
+                print(f'Reader status: {self.status} -> {status}; target={self.target}',
+                      file=sys.stderr, flush=True)
             self.status = status
         if hasattr(self, 'toggle_action'):
-            self.toggle_action.setText('Turn OFF Simple Reader' if self.enabled else 'Turn ON Simple Reader')
             self.toggle_action.setChecked(self.enabled)
         if hasattr(self, 'stop_action'):
-            self.stop_action.setEnabled(self.enabled)
+            self.stop_action.setEnabled(True)
         self.status_action.setText(self.status)
         self.pause_action.setText('Resume' if self.paused else 'Pause')
         self.pause_action.setEnabled(self.enabled)
@@ -448,7 +523,7 @@ class Reader(QObject):
             area_info = f' [Kindle: {round(rw*100)}%×{round(rh*100)}%]'
         elif self.custom_area:
             area_info = f' [Area: {self.custom_area[2]}×{self.custom_area[3]}]'
-        self.tray.setToolTip(f'Simple Reader — {self.status}{area_info}\n{VOICES[self.settings["voice"]][0]} · {self.settings["speed"]:g}×')
+        self.tray.setToolTip(f'Screen Narrator — {self.status}{area_info}\n{VOICES[self.settings["voice"]][0]} · {self.settings["speed"]:g}×')
 
     def fail(self, message):
         print(message, file=sys.stderr, flush=True)
@@ -456,11 +531,14 @@ class Reader(QObject):
         if message != self.last_error:
             # Qt tray messages set NeedsAttention and a themed attention icon.
             # The desktop shell crashed loading that icon after a Piper error.
-            subprocess.Popen(['notify-send', '-a', 'Simple Reader', 'Simple Reader', message[:350]],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            notify('Screen Narrator', message)
         self.last_error = message
+        if getattr(self, 'testing_voice', False):
+            self.set_enabled(False)
+            self.update('Voice test failed: ' + message[:300])
 
     def stop_speech(self):
+        self.kokoro_checking = False
         self.models_loading = False
         self.installing_kokoro = False
         self.epoch += 1
@@ -495,8 +573,15 @@ class Reader(QObject):
             endpoint_url(self.settings['online_endpoint'])
             if not self.settings.get('online_model') or not self.settings.get('online_voice'):
                 raise ValueError('Choose an online speech model and voice')
-        if enabled and self.settings.get('provider', 'Local') == 'Local' and not voice_is_available(self.settings['voice']):
+        if enabled and self.settings.get('provider', 'Local') == 'Local' and not voice_is_available(self.settings['voice'], self.settings):
             raise ValueError('Selected voice is unavailable. Install its runtime and required models.')
+        if getattr(self, 'preview_original', None) is not None:
+            self.settings = self.preview_original
+            self.online_token = self.preview_token
+            self.preview_token = None
+            self.preview_original = None
+            self.preview_settings = None
+        self.testing_voice = False
         was = self.enabled
         self.enabled = bool(enabled)
         self.paused = False
@@ -505,24 +590,28 @@ class Reader(QObject):
             task.cancel()
         self.scanning = False
         self.target = self.last_text = self.candidate = ''
+        self.pending_window = None
+        self.image_candidate = self.ocr_image = None
         self.update('Looking for text…' if self.enabled else 'Off')
         if notify or was != self.enabled:
-            msg = 'Simple Reader: ON' if self.enabled else 'Simple Reader: OFF'
-            subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'audio-headphones', '-t', '1500', msg],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            msg = 'Screen Narrator: ON' if self.enabled else 'Screen Narrator: OFF'
+            notify(msg, icon='audio-headphones', timeout=1500)
         if self.enabled:
             self.timer.start()
             QTimer.singleShot(350, self.scan)
         else:
             self.timer.stop()
+            self.kokoro_worker.close()
             self.overlay.close()
             for name in ('window.png', 'ocr.png', 'ocr.txt', 'ocr.tsv', 'speech_0.txt', 'speech_0.wav', 'speech_1.txt', 'speech_1.wav'):
                 (RUNTIME / name).unlink(missing_ok=True)
 
     def read_again(self):
+        print('Reader restart requested', file=sys.stderr, flush=True)
         if not self.enabled:
             self.set_enabled(True, notify=True)
         else:
+            self.image_candidate = self.ocr_image = None
             self.stop_speech()
             self.paused = False
             self.last_text = self.candidate = ''
@@ -565,9 +654,8 @@ class Reader(QObject):
     def select_area(self):
         self.stop_speech()
         self.update('Select reading area with mouse…')
-        subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'edit-select-all', '-t', '4000',
-                          'Simple Reader', 'Drag a box around the reading area with your mouse (Esc to cancel)'],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        notify('Screen Narrator', 'Drag a box around the reading area with your mouse (Esc to cancel)',
+               icon='edit-select-all', timeout=4000)
         slurp_args = ['slurp', '-d', '-b', '#00000050', '-c', '#a6e3a1', '-s', '#a6e3a125', '-w', '2']
         # 150ms delay lets any active Qt popup menu unmap from Wayland so pointer grab succeeds cleanly
         # close_stdin: a piped stdin puts slurp into "boxes from stdin" mode and it never grabs the pointer
@@ -576,9 +664,7 @@ class Reader(QObject):
     def area_selected(self, code, out, err):
         if code or not out.strip():
             self.update('Looking for text…' if self.enabled else 'Off')
-            subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'dialog-information', '-t', '2000',
-                              'Simple Reader', 'Area selection cancelled'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            notify('Screen Narrator', 'Area selection cancelled', icon='dialog-information', timeout=2000)
             return
         match = re.match(r'^(\d+),(\d+)\s+(\d+)x(\d+)$', out.strip())
         if not match:
@@ -587,9 +673,8 @@ class Reader(QObject):
         x, y, w, h = map(int, match.groups())
         if w < 20 or h < 20:
             self.update('Looking for text…' if self.enabled else 'Off')
-            subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'dialog-warning', '-t', '2500',
-                              'Simple Reader', 'Selected area was too small. Drag a box over the text to read.'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            notify('Screen Narrator', 'Selected area was too small. Drag a box over the text to read.',
+                   icon='dialog-warning', timeout=2500)
             return
 
         # Always save the exact selected box for active reading across any application/browser!
@@ -635,9 +720,7 @@ class Reader(QObject):
         else:
             msg = f'Reading area set: {w}×{h} px'
 
-        subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'edit-select-all', '-t', '2000',
-                          'Simple Reader', msg],
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        notify('Screen Narrator', msg, icon='edit-select-all', timeout=2000)
         self.update()
         if not self.enabled:
             self.set_enabled(True, notify=True)
@@ -651,9 +734,7 @@ class Reader(QObject):
             self.settings['kindle_area'] = None
             self.save()
         if had_area:
-            subprocess.Popen(['notify-send', '-a', 'Simple Reader', '-i', 'view-fullscreen', '-t', '1500',
-                              'Simple Reader', 'Reading area reset to default'],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            notify('Screen Narrator', 'Reading area reset to default', icon='view-fullscreen', timeout=1500)
             self.update()
             if self.enabled:
                 self.read_again()
@@ -664,7 +745,7 @@ class Reader(QObject):
         return 'kindle' in (title + cls) or 'klmgdcdnnefbfkpmkcmocagbihobefnh' in cls
 
     def scan(self):
-        if not self.enabled or self.paused or self.scanning or self.menu.isVisible() or (self.dialog and self.dialog.isVisible()):
+        if getattr(self, 'testing_voice', False) or not self.enabled or self.paused or self.scanning or self.menu.isVisible() or (self.dialog and self.dialog.isVisible()):
             return
         if not self.settings['follow'] and self.last_text:
             return
@@ -686,11 +767,7 @@ class Reader(QObject):
                 self.audio_highlights.clear()
                 self.highlight_queue = [[] for _ in self.queue]
             if address and address != self.target:
-                # User switched windows! Stop speech.
-                self.stop_speech()
-                self.target = address
-                self.last_text = self.candidate = ''
-                self.update('Looking for text…')
+                # Use the same confirmed focus transition as normal OCR scans.
                 self.scan()
         except Exception:
             pass
@@ -715,14 +792,35 @@ class Reader(QObject):
             self.scanning = False
             return
 
+        if self.target and self.target != address:
+            pending = getattr(self, 'pending_window', None)
+            now = time.monotonic()
+            if not pending or pending[0] != address:
+                self.pending_window = (address, now)
+                print(f'Confirming reader focus change: {self.target} -> {address}; '
+                      f'class={window.get("class", "")}', file=sys.stderr, flush=True)
+                remaining = 350
+            else:
+                remaining = max(0, round((.35 - (now - pending[1])) * 1000))
+            if remaining:
+                # Keep queued speech through transient focus changes. Confirm a
+                # different window before cancelling the page's audio.
+                self.scanning = False
+                epoch = self.epoch
+                QTimer.singleShot(remaining, lambda: self.scan() if self.epoch == epoch else None)
+                return
+        self.pending_window = None
         self.target_title = window.get('title', '')
         self.target_class = window.get('class', '')
         self.capture_window_geometry = (window['at'], window['size'])
 
         if self.target != address:
             # Switched window focus
+            print(f'Reader target changed: {self.target} -> {address}; '
+                  f'class={self.target_class}', file=sys.stderr, flush=True)
             self.stop_speech()
             self.target = address
+            self.image_candidate = self.ocr_image = None
             self.last_text = self.candidate = ''
             self.update('Looking for text…')
 
@@ -759,7 +857,15 @@ class Reader(QObject):
         self.scanning = True
         self.capture_highlight = (self.epoch, self.playing_file, self.overlay.last_payload)
         self.overlay.show([])
-        Task(self, ['grim', '-g', geom, RUNTIME / 'window.png'], self.captured, timeout=5)
+        epoch = self.epoch
+        def capture():
+            if self.epoch == epoch:
+                Task(self, ['grim', '-g', geom, RUNTIME / 'window.png'], self.captured, timeout=5)
+        if self.capture_highlight[2] and isinstance(self.capture_highlight[2], str) and json.loads(self.capture_highlight[2]).get('rectangles'):
+            # Let the compositor present the hidden overlay before fingerprinting.
+            QTimer.singleShot(35, capture)
+        else:
+            capture()
 
     def captured(self, code, out, err):
         epoch, playing_file, payload = self.capture_highlight
@@ -770,18 +876,36 @@ class Reader(QObject):
             self.scanning = False
             self.fail('Screen capture failed: ' + err)
             return
-        Task(self, ['magick', RUNTIME / 'window.png', '-colorspace', 'Gray', '-normalize', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
+        Task(self, ['magick', RUNTIME / 'window.png', '-colorspace', 'Gray', '-normalize', '-strip', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
 
     def prepared(self, code, out, err):
         if code:
             self.scanning = False
             self.fail('Could not prepare screen text: ' + err)
             return
+        try:
+            digest = hashlib.sha256((RUNTIME / 'ocr.png').read_bytes()).digest()
+        except OSError as error:
+            self.scanning = False
+            self.fail('Could not read captured image: ' + str(error))
+            return
+        if digest == self.ocr_image:
+            self.scanning = False
+            if self.status == 'Waiting for the reading window' and not self.is_speaking():
+                self.on_page_finished()
+            return
+        if digest != self.image_candidate:
+            self.image_candidate = digest
+            self.scanning = False
+            epoch = self.epoch
+            QTimer.singleShot(100, lambda: self.scan() if self.epoch == epoch else None)
+            return
+        self.capture_stable = True
         args = ['tesseract', RUNTIME / 'ocr.png', RUNTIME / 'ocr', '--psm', '6']
-        if self.settings['language'] == 'de':
-            args += ['--tessdata-dir', DATA / 'tessdata', '-l', 'deu']
-        else:
-            args += ['-l', 'eng']
+        ocr_language = languages.ocr_language(self.settings['language'])
+        if (DATA / 'tessdata' / (ocr_language + '.traineddata')).is_file():
+            args += ['--tessdata-dir', DATA / 'tessdata']
+        args += ['-l', ocr_language]
         # Speech and highlights share the same words from one recognition pass.
         args += ['-c', 'tessedit_create_txt=1']
         args += ['-c', 'tessedit_create_tsv=1']
@@ -802,24 +926,27 @@ class Reader(QObject):
             if not self.is_speaking():
                 self.update('Waiting for readable text')
             return
+        self.ocr_image = getattr(self, 'image_candidate', None)
 
         # Idle or waiting for next page
         if same_text(text, self.last_text, threshold=0.90):
             self.candidate = ''
+            if getattr(self, 'status', '') == 'Waiting for the reading window' and not self.is_speaking():
+                self.on_page_finished()
             return
-        if not same_text(text, self.candidate, threshold=0.90):
+        if not same_text(text, self.candidate, threshold=0.90) and not getattr(self, 'capture_stable', False):
             if self.is_speaking():
                 # Stop stale speech as soon as a changed page is observed, then
                 # require a second stable capture before reading the new page.
                 self.stop_speech()
                 self.update('Waiting for the page to settle…')
             self.candidate = text
-            QTimer.singleShot(400, self.scan)
+            QTimer.singleShot(150, self.scan)
             return
         self.last_text = text
         self.candidate = ''
         self.stop_speech()
-        self.queue = chunks(text)
+        self.queue = page_chunks(text)
         self.highlight_queue = [[] for _ in self.queue]
         if self.settings['highlight'] and self.capture_area:
             try:
@@ -875,6 +1002,7 @@ class Reader(QObject):
 
         _, engine, reference = VOICES[self.settings['voice']]
         online_payload = None
+        custom_files = engine_files(self.settings, engine) if reference == 'custom' else None
         if self.settings.get('provider', 'Local') == 'Online':
             args = [sys.executable, Path(__file__).with_name('online_provider.py')]
             online_payload = json.dumps({'settings': self.settings, 'token': self.online_token, 'input': str(txt_file), 'output': str(wav_file)})
@@ -885,16 +1013,19 @@ class Reader(QObject):
                     '-s', '1.0',  # Playback applies speed once, consistently across engines.
                     '-l', self.settings['language']]
         elif engine == 'qwen':
-            args = [HOME / '.local/bin/llama-tts',
-                    '-m', QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf',
-                    '-mm', QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf',
+            args = [custom_files[0] if custom_files else HOME / '.local/bin/llama-tts',
+                    '-m', custom_files[1] if custom_files else QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf',
+                    '-mm', custom_files[2] if custom_files else QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf',
                     '--tts-lang', self.settings['language'],
-                    '--tts-speaker-file', DATA / 'voices' / reference,
+                    '--tts-speaker-file', custom_files[3] if custom_files else DATA / 'voices' / reference,
                     '-ngl', '99', '-c', '4096', '-n', '1536', '-t', '8', '--seed', '42',
                     '-f', txt_file, '-o', wav_file]
         else:
-            args = [DATA / 'venv/bin/piper', '-m', DATA / 'voices' / reference,
-                    '-i', txt_file, '-f', wav_file]
+            args = [custom_files[0] if custom_files else DATA / 'venv/bin/piper',
+                    '-m', custom_files[1] if custom_files else DATA / 'voices' / reference,
+                    '--input-file', txt_file, '-f', wav_file]
+            if custom_files:
+                args += ['-c', custom_files[2]]
 
         if self.player is None:
             self.update('Preparing voice…')
@@ -911,11 +1042,24 @@ class Reader(QObject):
             self.ready_file = wav_file
             self.pump_pipeline()
 
-        self.tts_task = self.speech_task(args, on_done, stdin_data=online_payload)
+        if engine == 'kokoro' and online_payload is None:
+            self.tts_task = self.kokoro_worker.request(
+                dict(text=text, voice=reference, language=self.settings['language'],
+                     output=str(wav_file)), on_done)
+            self.speech_tasks.add(self.tts_task)
+        else:
+            self.tts_task = self.speech_task(args, on_done, stdin_data=online_payload)
 
     def start_player(self, wav_file):
         self.playing_file = wav_file
-        args = ['mpv', '--no-video', '--no-terminal', '--audio-pitch-correction=yes',
+        try:
+            device = playback_output(self.settings.get('audio_output', 'auto'))
+        except ValueError as error:
+            self.fail(str(error))
+            self.ready_file = None
+            self.queue.clear()
+            return
+        args = ['mpv', '--audio-device=' + device, '--no-video', '--no-terminal', '--audio-pitch-correction=yes',
                 f'--speed={self.settings["speed"]}', f'--input-ipc-server={RUNTIME / "mpv.sock"}',
                 '--pause=yes' if self.paused else '--pause=no', str(wav_file)]
         self.update('Paused' if self.paused else 'Reading')
@@ -938,19 +1082,110 @@ class Reader(QObject):
         # While player is playing, trigger lookahead pre-generation of the next chunk
         self.pump_pipeline()
 
+    def probe_provider(self, values):
+        candidate = Reader.validated_settings(self, values)
+        self.probed_settings = values.copy()
+        self.probed_voices = [dict(value=k, label=v[0], engine=v[1])
+                              for k, v in available_voices(candidate['language'], candidate).items()]
+
+    def test_provider(self, values, token=None):
+        if self.enabled:
+            raise ValueError('Stop reading before testing a provider')
+        if self.installing_kokoro or self.kokoro_checking:
+            raise ValueError('Finish the model operation before testing a provider')
+        candidate = Reader.validated_settings(self, values)
+        self.verified_provider = None
+        if token is not None and (not isinstance(token, str) or any(c in token for c in '\n\r') or len(token) > 16384):
+            raise ValueError('Invalid provider token')
+        original = self.settings
+        original_token = self.online_token
+        self.preview_token = original_token
+        self.online_token = token if token else original_token if candidate['online_endpoint'] == original['online_endpoint'] else ''
+        self.settings = candidate
+        self.preview_token_digest = hashlib.sha256(self.online_token.encode()).hexdigest()
+        try:
+            self.preview_original = original
+            self.preview_settings = values.copy()
+            self.test_voice()
+        except Exception:
+            self.settings = original
+            self.online_token = original_token
+            self.preview_token = None
+            self.preview_original = None
+            self.preview_settings = None
+            raise
+
+    def use_provider(self, values, token=None, remember=False):
+        if self.enabled:
+            raise ValueError('Stop reading before activating a provider')
+        if getattr(self, 'verified_provider', None) != values:
+            raise ValueError('Test this provider voice before activating it')
+        if token is not None and (not isinstance(token, str) or any(c in token for c in '\n\r') or len(token) > 16384):
+            raise ValueError('Invalid provider token')
+        if not isinstance(remember, bool):
+            raise ValueError('Invalid token storage option')
+        effective_token = token or (self.online_token if values.get('online_endpoint', self.settings['online_endpoint']) == self.settings['online_endpoint'] else '')
+        if values.get('provider') == 'Online' and hashlib.sha256(effective_token.encode()).hexdigest() != self.verified_token_digest:
+            raise ValueError('Test the provider again after changing its token')
+        self.configure_settings(values)
+        if values.get('provider') == 'Online':
+            self.configure_token(token or self.online_token, remember)
+        self.verified_provider = None
+        self.provider_status = 'Speech provider activated'
+
+    def test_voice(self):
+        if self.enabled:
+            raise ValueError('Stop reading before testing a voice')
+        if getattr(self, 'installing_kokoro', False) or getattr(self, 'kokoro_checking', False):
+            raise ValueError('Finish the model operation before testing a voice')
+        if self.settings.get('provider') == 'Online':
+            endpoint_url(self.settings['online_endpoint'])
+            if not self.settings.get('online_model') or not self.settings.get('online_voice'):
+                raise ValueError('Choose a speech model and voice first')
+        elif not voice_is_available(self.settings['voice'], self.settings):
+            raise ValueError('Set up a voice first')
+        self.stop_speech()
+        self.enabled = True
+        self.paused = False
+        self.testing_voice = True
+        self.queue = [languages.sample(self.settings['language'])]
+        self.highlight_queue = [[]]
+        self.pump_pipeline()
+
     def on_page_finished(self):
+        if getattr(self, 'testing_voice', False):
+            self.verified_provider = getattr(self, 'preview_settings', None)
+            self.verified_token_digest = getattr(self, 'preview_token_digest', None)
+            self.testing_voice = False
+            self.set_enabled(False)
+            self.update('Voice test complete')
+            return
         if self.settings.get('auto_page_turn', True) and self.is_kindle_target():
             self.update('Turning to next page…')
             epoch = self.epoch
-            QTimer.singleShot(400, lambda: self.do_page_turn() if self.epoch == epoch else None)
+            QTimer.singleShot(100, lambda: self.do_page_turn() if self.epoch == epoch else None)
         else:
             self.update('On — waiting for a new page')
 
     def do_page_turn(self):
         if not self.enabled or self.paused:
             return
-        # Send Right arrow key to advance Kindle page
-        Task(self, ['wtype', '-k', 'Right'], self.page_turn_sent, timeout=3)
+        # The delayed page turn must still belong to the focused Kindle window.
+        epoch = self.epoch
+        def focused(code, out, err):
+            if not self.enabled or self.paused or self.epoch != epoch:
+                return
+            try:
+                address = json.loads(out).get('address') if not code else None
+            except (ValueError, TypeError):
+                address = None
+            if address != self.target:
+                print('Reader page turn deferred: target is not focused', file=sys.stderr, flush=True)
+                self.update('Waiting for the reading window')
+                self.scan()
+                return
+            Task(self, ['wtype', '-k', 'Right'], self.page_turn_sent, timeout=3)
+        Task(self, ['hyprctl', 'activewindow', '-j'], focused, timeout=3)
 
     def page_turn_sent(self, code, out, err):
         if not self.enabled or self.paused:
@@ -958,8 +1193,9 @@ class Reader(QObject):
         if code:
             self.fail('Could not turn the Kindle page: ' + err)
             return
-        # Wait 800ms for Kindle's page transition animation to settle, then scan
-        QTimer.singleShot(800, self.scan)
+        # Scan early; the second matching OCR capture still confirms stability.
+        epoch = self.epoch
+        QTimer.singleShot(250, lambda: self.scan() if self.epoch == epoch else None)
 
     def show_settings(self):
         if os.environ.get("OCRVOX_BAR_WIDGET") == "1":
@@ -970,17 +1206,17 @@ class Reader(QObject):
             self.dialog.raise_()
             return
         self.dialog = QDialog()
-        self.dialog.setWindowTitle('Simple Reader settings')
+        self.dialog.setWindowTitle('Screen Narrator settings')
         form = build_settings_layout(self.dialog)
         form.addRow(section_heading("Voice & Language"))
         voice = QComboBox()
-        for key, (name, *_rest) in available_voices(self.settings['language']).items():
+        for key, (name, *_rest) in available_voices(self.settings['language'], self.settings).items():
             voice.addItem(name, key)
         voice.setCurrentIndex(voice.findData(self.settings['voice']))
         form.addRow('Voice', voice)
         language = QComboBox()
-        language.addItem('German', 'de')
-        language.addItem('English', 'en')
+        for option in languages.options():
+            language.addItem(option['label'], option['value'])
         language.setCurrentIndex(language.findData(self.settings['language']))
         form.addRow('Text language', language)
         speed = QDoubleSpinBox()
@@ -1061,39 +1297,57 @@ class Reader(QObject):
         buttons.rejected.connect(self.dialog.reject)
         self.dialog.show()
 
-    def configure_settings(self, values):
+    def validated_settings(self, values):
         if not isinstance(values, dict):
             raise ValueError('Settings must be an object')
-        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice'}
+        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output'} | PATH_KEYS
         if set(values) - allowed:
             raise ValueError('Unknown setting')
         next_settings = self.settings.copy()
         for key, value in values.items():
+            if key == 'audio_output':
+                value = validate_output(value)
             if key == 'provider' and value not in ('Local', 'Online'):
                 raise ValueError('Unknown speech provider')
             if key == 'online_endpoint':
                 value = endpoint_url(value)
             if key in {'online_model', 'online_voice'} and (not isinstance(value, str) or len(value) > 256):
                 raise ValueError('Enter a valid model or voice ID')
-            if key == 'voice' and (not isinstance(value, str) or not voice_is_available(value)):
+            if key == 'voice' and (not isinstance(value, str) or value not in VOICES):
                 raise ValueError('Voice runtime or required model is not installed')
-            if key == 'language' and value not in ('de', 'en'):
+            if key == 'language' and not languages.valid(value):
                 raise ValueError('Unknown language')
             if key == 'speed':
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not .6 <= value <= 2.:
                     raise ValueError('Speed must be between 0.6 and 2')
             if key in {'follow', 'kindle_crop', 'auto_page_turn', 'highlight'} and not isinstance(value, bool):
                 raise ValueError('Expected a boolean setting')
+            if key in PATH_KEYS:
+                value = normalize_path(value)
             next_settings[key] = value
         if next_settings['language'] != self.settings['language'] and next_settings['provider'] == 'Local':
-            choices = available_voices(next_settings['language'])
+            choices = available_voices(next_settings['language'], next_settings)
             if next_settings['voice'] not in choices:
                 next_settings['voice'] = next((k for k, v in choices.items() if v[1] == 'kokoro'), next(iter(choices), DEFAULTS['voice']))
-        restart = any(next_settings[k] != self.settings[k] for k in ('voice', 'language', 'provider', 'online_endpoint', 'online_model', 'online_voice'))
+        if 'voice' in values and not voice_is_available(next_settings['voice'], next_settings):
+            raise ValueError('Voice runtime or required model is not installed')
+        if next_settings['provider'] == 'Online':
+            endpoint_url(next_settings['online_endpoint'])
+            if not next_settings.get('online_model') or not next_settings.get('online_voice'):
+                if values.get('provider') == 'Online':
+                    raise ValueError('Enter a speech model and voice before activating the provider')
+        return next_settings
+
+    def configure_settings(self, values):
+        if getattr(self, 'preview_original', None) is not None:
+            raise ValueError('Finish or stop the voice test before changing settings')
+        next_settings = Reader.validated_settings(self, values)
+        restart = any(next_settings[k] != self.settings[k] for k in ('voice', 'language', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output', *PATH_KEYS))
         if next_settings['online_endpoint'] != self.settings['online_endpoint']:
             self.online_token = ''
             self.online_models = []
         self.settings = next_settings
+        self.verified_provider = None
         if not self.settings['highlight']:
             self.overlay.close()
         self.mpv_command(['set_property', 'speed', self.settings['speed']])
@@ -1109,6 +1363,7 @@ class Reader(QObject):
         self.online_token = token
         self.settings['remember_token'] = remember
         self.save()
+        self.verified_provider = None
         self.provider_status = 'Token applied' if token else 'Token cleared'
 
     def refresh_online_models(self):
@@ -1139,9 +1394,41 @@ class Reader(QObject):
                 return 'Installing Kokoro…'
         return self.provider_status
 
+    def check_kokoro_updates(self, language, update=False):
+        if language not in KOKORO:
+            raise ValueError('Kokoro has no voice for this language')
+        if self.enabled or self.installing_kokoro:
+            raise ValueError('Stop reading before checking or updating models')
+        if self.kokoro_checking:
+            return
+        if update and not self.kokoro_updates.get(language, {}).get('available'):
+            raise ValueError('Check for model updates first')
+        self.kokoro_checking = not update
+        self.installing_kokoro = update
+        self.provider_status = 'Updating Kokoro model…' if update else 'Checking official Kokoro model sources…'
+        args = [sys.executable, Path(__file__).with_name('kokoro_updates.py'), '--language', language]
+        if update:
+            self.kokoro_worker.close()
+            progress = RUNTIME / 'kokoro-install.json'
+            progress.unlink(missing_ok=True)
+            args += ['--update', '--progress', progress]
+        def done(code, out, err):
+            self.kokoro_checking = self.installing_kokoro = False
+            self.install_task = None
+            if code:
+                self.provider_status = 'Model update failed: ' + err.strip()[-500:]
+                return
+            try:
+                result = json.loads(out)
+                self.kokoro_updates[language] = result
+                self.provider_status = result['message']
+            except (ValueError, KeyError, TypeError):
+                self.provider_status = 'Cannot read model update result'
+        self.install_task = Task(self, args, done, timeout=1800 if update else 90)
+
     def install_kokoro(self, language):
-        if language not in ('de', 'en'):
-            raise ValueError('Choose German or English / multilingual')
+        if language not in KOKORO:
+            raise ValueError('Kokoro has no voice for this language; use Piper')
         if self.enabled:
             raise ValueError('Stop reading before installing a speech model')
         if self.installing_kokoro:
@@ -1155,12 +1442,7 @@ class Reader(QObject):
             if code:
                 self.provider_status = err.strip()[-500:] or 'Kokoro installation failed. Retry when your network is available.'
                 return
-            preferred = 'kokoro-martin' if language == 'de' else 'kokoro-heart'
-            if voice_is_available(preferred):
-                self.settings.update(voice=preferred, language=language)
-                self.save()
-                self.update()
-            self.provider_status = 'Kokoro installed for ' + ('German' if language == 'de' else 'English / multilingual')
+            self.provider_status = 'Kokoro installed for ' + languages.name(language)
         self.install_task = Task(self, [sys.executable, Path(__file__).with_name('install_kokoro.py'),
                                         '--language', language, '--progress', progress], done, timeout=1800)
 
@@ -1188,6 +1470,10 @@ class Reader(QObject):
             elif command == 'off': self.set_enabled(False, notify=True)
             elif command == 'toggle': self.set_enabled(not self.enabled, notify=True)
             elif command == 'read': self.read_again()
+            elif command == 'test-voice': self.test_voice()
+            elif command == 'probe-provider': self.probe_provider(request['settings'])
+            elif command == 'test-provider': self.test_provider(request['settings'], request.get('token'))
+            elif command == 'use-provider': self.use_provider(request['settings'], request.get('token'), request.get('remember_token', False))
             elif command == 'pause': self.pause()
             elif command == 'select-area': self.select_area()
             elif command == 'clear-area': self.clear_area()
@@ -1197,13 +1483,20 @@ class Reader(QObject):
             elif command == 'configure-token': self.configure_token(request.get('token', ''), request.get('remember_token', False))
             elif command == 'online-models': self.refresh_online_models()
             elif command == 'install-kokoro': self.install_kokoro(request.get('language', self.settings['language']))
+            elif command == 'check-kokoro-updates': self.check_kokoro_updates(request.get('language', self.settings['language']))
+            elif command == 'update-kokoro': self.check_kokoro_updates(request.get('language', self.settings['language']), update=True)
             elif command == 'cancel-kokoro-install': self.cancel_kokoro_install()
             elif command == 'settings': self.show_settings()
             elif command == 'quit': QTimer.singleShot(100, self.app.quit)
             elif command != 'status': raise ValueError('Unknown command')
             response = dict(enabled=self.enabled, paused=self.paused, status=self.status,
-                            custom_area=self.custom_area,
-                            settings=self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={'de': voice_is_available('kokoro-martin'), 'en': voice_is_available('kokoro-heart')}, voices=[dict(value=k, label=v[0]) for k, v in available_voices(self.settings['language']).items()], window=self.target_title,
+                            custom_area=self.custom_area, testing_voice=self.testing_voice,
+                            kokoro_checking=self.kokoro_checking, kokoro_updates=self.kokoro_updates,
+                            engines={'piper': engine_ready(self.settings, 'piper'), 'qwen': engine_ready(self.settings, 'qwen')},
+                            probed_settings=self.probed_settings, probed_voices=self.probed_voices,
+                            piper_installations={lang: installed_settings(DATA, lang) for lang in PIPER if engine_ready(installed_settings(DATA, lang), 'piper')},
+                            audio_outputs=outputs(), verified_provider=getattr(self, 'verified_provider', None),
+                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
                             queued=len(self.queue), processes=[t.proc.processId() for t in self.speech_tasks])
         except (ValueError, KeyError, TypeError) as error:
             response = {'error': str(error)}
@@ -1232,7 +1525,7 @@ def main():
             try:
                 client.connect(str(RUNTIME / 'control.sock'))
             except OSError:
-                print('Simple Reader is not running.', file=sys.stderr)
+                print('Screen Narrator is not running.', file=sys.stderr)
                 return 1
             request = {'command': sys.argv[1]}
             if len(sys.argv) > 2:
@@ -1241,7 +1534,9 @@ def main():
             print(client.recv(65536).decode().strip())
         return 0
     app = QApplication([])
-    app.setApplicationName('ocrvox')
+    # Match the desktop ID so Launch & Bind names the tray entry Screen Narrator.
+    app.setApplicationName('simple-reader')
+    app.setApplicationDisplayName('Screen Narrator')
     app.setQuitOnLastWindowClosed(False)
     lock = QLockFile(str(RUNTIME / 'reader.lock'))
     if not lock.tryLock(0):

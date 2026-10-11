@@ -1,6 +1,8 @@
-# Simple Reader
+# Screen Narrator
 
-Read visible text aloud without leaving the Omarchy bar. Simple Reader captures the active window with local OCR and narrates it with a selected voice. Its native popup includes voice, language, speed, pause, reading-area and Kindle page controls. The reader service is included; speech models are downloaded separately.
+*Formerly Simple Reader.* The plugin ID `ubruckhaus.simple-reader`, the `simple-reader` command and all data paths are unchanged.
+
+Read visible text aloud without leaving the Omarchy bar. Screen Narrator captures the active window with local OCR and narrates it with a selected voice. Its native popup includes voice, language, speed, pause, reading-area and Kindle page controls. The reader service is included; speech models are downloaded separately.
 
 Click the headphones bar icon for reading, voice, language, speed, Kindle and area controls. Settings save immediately. Closing the popup leaves narration running; Stop ends it. User Manual opens integrated guidance. Existing reader shortcuts remain available; installation does not replace any desktop shortcuts.
 
@@ -9,18 +11,38 @@ The bridge uses only a private local Unix socket and Python standard library. Na
 
 ## Install
 
-Requires Omarchy Quattro with Quickshell plugins and Hyprland 0.56.2 (Lua API), a working PipeWire audio session, and the following system packages:
+Install and enable the plugin on Omarchy Quattro:
 
 ```sh
-sudo pacman -S --needed uv grim slurp imagemagick tesseract tesseract-data-deu tesseract-data-eng mpv wtype
 omarchy plugin add https://github.com/uBruckhaus/omarchy-simple-reader.git
-bash ~/.config/omarchy/plugins/ubruckhaus.simple-reader/setup.sh
 omarchy plugin enable ubruckhaus.simple-reader
 ```
 
-Setup creates an isolated Python 3.14 environment with the versions in `requirements.txt`, copies the reader into `~/.local/share/kindle-reader/app`, and creates a user `ocrvox.service`. An existing reader service is reused without overwriting its runtime, settings or configuration. Setup never changes keybindings or enables login autostart. Models, API credentials and recordings are not bundled.
+Open the headphones widget and **Add / manage speech providers…**. Choose your
+reading language and Kokoro or Piper, then install the voice. Then choose **Test provider
+voice → Use provider**, focus your text window and **Read active window**.
 
-Open the headphones widget, select **German · Martin** or **English / multilingual · Kokoro v1.0**, then use **Install Kokoro for selected language**. Wait for installation to finish before pressing **Start reader**. Model downloads are verified against SHA256 digests. German and English OCR packages are required for their respective reading languages. Online speech is optional; local OCR still needs the system packages above.
+The main panel keeps the active provider, voice and audio output visible. Provider
+setup stays separate from active settings until you test and activate it. Reading
+options expand Kindle, following, highlighting and area controls. Advanced contains
+manual files and maintenance. See [MANUAL.md](MANUAL.md) for the full setup flow.
+
+**51 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
+Hindi, Japanese and Chinese (about 330–354 MB plus runtime packages). Piper covers
+50 languages with one voice each (60–122 MB plus a separate pinned runtime). Setup
+installs the matching Tesseract OCR data. The popup defaults to your desktop locale. Progress, retry and cancellation
+are built in; system package transactions request authorization and cannot be
+cancelled from the popup. Setup does not start narration or add shortcuts.
+
+Existing managed reader installations are upgraded with a backup of runtime and service files
+in `~/.local/share/kindle-reader/backups/`. Settings, credentials, voices and models are retained.
+An unrelated, unmanaged `ocrvox.service` is preserved and setup reports the conflict.
+The existing plugin ID and data paths remain compatible with Simple Reader installations.
+
+For terminal setup, `bash ~/.config/omarchy/plugins/ubruckhaus.simple-reader/setup.sh --language fr`
+performs the same guided installation (any two-letter code from the language list;
+Piper is chosen automatically when Kokoro has no voice for it). `--backend-only` installs or upgrades the backend without
+downloading or selecting a voice.
 
 ## Remove
 
@@ -39,30 +61,69 @@ OCR and local speech stay on your machine. Screenshots and generated audio use a
 
 ## Voice availability
 
-Kokoro is the baseline speech engine; install a language model from the popup. Voice choices are filtered against installed runtimes and their specific model/voice files. Piper needs its executable, ONNX model and JSON configuration. Qwen needs a working llama.cpp TTS launcher, the compatible 1.7B backbone and audio projection models, and its speaker recording. Installing a chat server or a chat model does not add a speech voice. This reader currently uses the llama.cpp TTS runner for Qwen; it has no Ollama speech adapter, so Ollama-only voices are not advertised. Existing reader settings remain compatible. Optional Qwen models can be located through the `QWEN_TTS_MODEL_DIR` service environment variable; the default is `~/.local/share/kindle-reader/models/Qwen3-TTS-1.7B`. A compatible `~/.local/bin/llama-tts` runner and reference recordings in `~/.local/share/kindle-reader/voices` are required.
-
-## Kokoro language installation
-
-Choose **Kokoro language model**: **German · Martin** or **English / multilingual · Kokoro v1.0**. If the selected model/runtime is missing, **Install Kokoro for selected language** appears. Only the selected model and voice files are downloaded; progress and errors appear in the popup. Cancel stops installation. Existing model files are preserved until replacement downloads pass SHA256 verification. Install before starting narration. Successful installation selects the matching reading language and voice.
-
-German model source: [German Martin ONNX](https://huggingface.co/Godelaune/Kokoro-82M-ONNX-German-Martin). Standard model source: [Kokoro ONNX model files](https://github.com/thewh1teagle/kokoro-onnx/releases/tag/model-files-v1.0).
+Kokoro and Piper offer guided installation; Qwen offers a checklist for an existing
+llama.cpp TTS runner, compatible backbone, audio projection and speaker recording.
+Only available voices are selectable. Custom file paths remain under Advanced.
+Installing a chat model does not install a speech voice; Whisper is speech-to-text.
+See [MANUAL.md](MANUAL.md) for voice requirements and model update instructions.
 
 ## Online speech providers
 
-Choose **Online**, enter an HTTPS endpoint, choose or enter a speech model ID and voice ID, then apply an API key/bearer token. **Refresh models** is optional; enter the model manually when discovery is unavailable. The provider must support the [OpenAI-compatible speech request](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) at `/v1/audio/speech` with WAV output. Model discovery can also list chat models, so select a speech-capable model. HTTP is allowed only on loopback for local compatible servers.
+Under **Add / manage speech providers…**, choose **Speech server**, enter an HTTPS endpoint, choose or enter a speech model ID and voice ID, enter an API key/bearer token if required, then **Test provider voice → Use provider**. **Refresh models** is optional; enter the model manually when discovery is unavailable. The provider must support the [OpenAI-compatible speech request](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) at `/v1/audio/speech` with WAV output. Model discovery can also list chat models, so select a speech-capable model. HTTP is allowed only on loopback for local compatible servers.
 
-OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Start reader. Tokens remain in reader memory unless **Save token locally** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
+OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Read active window or Test voice. Tokens remain in reader memory unless **Remember token on this device** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
 
 ## Marketplace summary
 
-**Simple Reader — visible text, spoken aloud.** Local OCR narration with German and English Kokoro voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. One-time backend and voice setup is required; no model or credential is included.
+**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 51 languages with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
 
 ## Development checks
 
 ```sh
 omarchy plugin validate .
 bash -n setup.sh
-QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME=none ~/.local/share/kindle-reader/venv/bin/python -m unittest discover -s reader -p 'test_*.py'
+python3 -m unittest discover -s tests
+QT_QPA_PLATFORM=offscreen QT_QPA_PLATFORMTHEME= QT_STYLE_OVERRIDE=Fusion ~/.local/share/kindle-reader/venv/bin/python -m unittest discover -s reader -p 'test_*.py'
 ```
 
 MIT license. Vendored Omarchy controls retain their upstream MIT notice in `native/LICENSE`; see `THIRD_PARTY_NOTICES.md`.
+
+Kokoro keeps its selected model in a reusable subprocess during reading, so
+successive chunks and pages avoid reloading the voice model. Turning the reader
+off releases it; changing a page during synthesis cancels the old request before
+reusing audio files. Automatic Kindle page turns scan after 250 ms, confirm that
+the page image is stable, and then run one OCR pass.
+
+## Reading shortcuts
+
+Setup adds the **Screen Narrator** application entry with **Start / stop reading**,
+**Start reading**, and **Stop reading** desktop actions. In Launch & Bind,
+open **Apps → Screen Narrator → Shortcuts**, choose the action and assign your key.
+The default application action opens the reading controls. Setup keeps the
+existing `simple-reader.desktop` ID and `simple-reader` command so previous
+bindings continue to work. It does not assign a key automatically.
+
+The same actions are available from a terminal as `simple-reader toggle`,
+`simple-reader on`, and `simple-reader off`.
+
+Launch & Bind's **Plugins** view also exposes these controls through Screen Narrator's
+tray menu. Choose **Screen Narrator** under **Running in the bar**, open its action
+menu, then **Shortcut…** and select **Start / stop reading**, **Start reading**
+or **Stop reading**. Their menu labels stay fixed so saved shortcuts work in both
+reading states. The separate shell-plugin entry continues to open the popup.
+
+### Kokoro model updates
+
+Open **Add / manage speech providers… → Kokoro → Advanced · files & maintenance**, select the voice language, and use
+**Check for model updates**. The check compares your installed files with the
+German model repository's SHA256 metadata or the standard Kokoro model releases.
+If different verified files are available, **Update selected Kokoro model** appears.
+Stop reading before checking or updating. Updates are never installed automatically.
+Both downloaded files are checksum-verified and tested together before activation;
+existing models stay available if downloading or validation fails. Updated models
+are stored under `kokoro/versions/`, separately from the original default models.
+Reader setup and repair retain the active updated model instead of reverting it.
+
+Page changes now use two quick image captures to confirm a stable page, followed
+by a single OCR pass. Unchanged pages skip OCR. The opening speech chunk is shorter
+so narration can begin sooner while the remaining chunks are generated in advance.
