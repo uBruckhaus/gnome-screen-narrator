@@ -1172,7 +1172,7 @@ class Reader(QObject):
                 return
             if code or not out.strip():
                 self.queue.clear()
-                self.fail('Translation failed. Check the translator under Translation, then select Start reading.\n' + (err or 'No text returned')[-500:])
+                self.fail('Translation failed. Check the translator under Translation, then press ▶ Start.\n' + (err or 'No text returned')[-500:])
                 return
             self.synthesize_chunk(out, wav_file, txt_file)
         self.tts_task = self.translation_worker.request(self.translation_request(text), on_done)

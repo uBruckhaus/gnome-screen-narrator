@@ -92,7 +92,7 @@ languages work.
    small runtime. It runs on the CPU without any server. Its license is
    **CC-BY-NC 4.0: non-commercial use only**.
 3. **Test translation** translates a sample sentence and shows the result without
-   speaking. Then use **Start reading** as usual.
+   speaking. Then press **▶ Start** as usual.
 
 Each passage is translated just before it is spoken, while the previous one plays.
 Highlighting marks the original sentence. If the translator fails, reading stops
