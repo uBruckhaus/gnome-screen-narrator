@@ -191,8 +191,11 @@ Ui.Panel {
     onExited: Qt.callLater(root.nextRequest)
   }
   Timer { interval: 1500; repeat: true; running: root.opened; onTriggered: root.request({command: "status"}) }
-  Ui.PopupCard {
+  // A layer-shell panel that takes the keyboard when it opens; an xdg-popup
+  // (PopupCard) never receives keys, so text fields and list filters stayed dead.
+  Ui.KeyboardPanel {
     id: popup
+    focusTarget: content
     bar: root.bar
     anchorItem: root.anchorItem
     owner: root.hostWidget || root
