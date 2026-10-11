@@ -20,7 +20,7 @@ omarchy plugin enable ubruckhaus.simple-reader
 
 Open the headphones widget and **Add / manage speech providers…**. Choose your
 reading language and Kokoro or Piper, then install the voice. Then choose **Test provider
-voice → Use provider**, focus your text window and **Start reading**.
+voice → Use provider**, focus your text window and press **▶ Start** (or right-click the bar icon; right-click again stops).
 
 The main panel keeps the active provider, voice and audio output visible. Provider
 setup stays separate from active settings until you test and activate it. Reading

@@ -18,7 +18,10 @@ Ui.BarWidget {
     bar: root.bar
     text: "\uf025"
     active: panel.state.enabled === true
-    tooltipText: "Screen Narrator · " + (panel.state.status || "Off") + "\n" + panel.providerSummary + "\nClick for reading controls"
-    onPressed: panel.toggle()
+    tooltipText: "Screen Narrator · " + (panel.state.status || "Off") + "\n" + panel.providerSummary + "\nClick: reading controls · Right-click: " + (panel.state.enabled === true ? "stop" : "start") + " reading"
+    onPressed: function(button) {
+      if (button === Qt.RightButton) panel.request({command: "toggle"})
+      else panel.toggle()
+    }
   }
 }
