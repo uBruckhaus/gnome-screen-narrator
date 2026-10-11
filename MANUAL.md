@@ -2,7 +2,7 @@
 
 Click the headphones icon in the Omarchy bar to open reading controls; right-click it to start or stop reading directly. In the popup, **▶ Start**, **❚❚ Pause** and **■ Stop** sit right under the summary. Start begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
 
-Choose voice, text language (51 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
+Choose voice, text language (51 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, PDF page detection, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
 
 The integrated User Manual explains these controls in section cards. Existing reader shortcuts continue to work; this plugin does not install or replace shortcuts. The application launcher opens the bar popup. Speech engines and OCR stay in the existing local reader service.
 
@@ -61,6 +61,21 @@ English Kokoro source: [Kokoro ONNX model files](https://github.com/thewh1teagle
 Piper sources: [Piper runtime](https://github.com/OHF-Voice/piper1-gpl),
 [Piper voice models and their model cards](https://huggingface.co/rhasspy/piper-voices).
 Whisper is speech recognition, so it is not offered as a reading voice.
+
+## Reading PDFs
+
+1. Open the PDF in Evince (GNOME Document Viewer) or Papers. Any zoom works; a larger zoom
+   gives the OCR more pixels per letter.
+2. Keep the viewer focused and press **▶ Start**.
+3. Only the page is read. The toolbar, thumbnails and the next page are skipped, and page
+   numbers at the top or bottom ("12", "- 12 -", "Page 3", "Seite 3 von 10") are not spoken.
+4. With **Turn Kindle and PDF pages after reading** on, the next page follows automatically.
+   A page taller than the window is scrolled down first. After the last page the reader turns
+   off and shows **End of document**.
+
+Turn off **Read only the page in PDF viewers** if a document has no visible page border (for
+example dark slides); the whole window is read then. Other PDF viewers and browser PDF tabs are
+read as normal windows, without page turning.
 
 ## Translation (optional)
 

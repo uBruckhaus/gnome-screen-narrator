@@ -2,9 +2,9 @@
 
 *Formerly Simple Reader.* The plugin ID `ubruckhaus.simple-reader`, the `simple-reader` command and all data paths are unchanged.
 
-Read any window or Kindle page aloud — and, if you like, **translate it first**. Screen Narrator recognizes the text of the active window with local OCR and speaks it with a local voice in 51 languages. Turn on **Translate before reading** to read, say, an English page and hear it in Spanish: translation runs offline with NLLB-200 or through your own llama.cpp, LM Studio or Ollama server. The reader service is included; voices and the translator are downloaded on request.
+Read any window, PDF or Kindle page aloud — and, if you like, **translate it first**. Screen Narrator recognizes the text of the active window with local OCR and speaks it with a local voice in 51 languages. Turn on **Translate before reading** to read, say, an English page and hear it in Spanish: translation runs offline with NLLB-200 or through your own llama.cpp, LM Studio or Ollama server. The reader service is included; voices and the translator are downloaded on request.
 
-Click the headphones bar icon for ▶ Start / ❚❚ Pause / ■ Stop and three collapsible groups: **Reading** (text language, speed, Kindle and area options), **Voice** (provider, voice, audio output) and **Translation** (off by default). Right-click the icon to start or stop reading directly. When something is missing, the popup names the one next step and a **Set up automatically** button installs it. Settings save immediately. Closing the popup leaves narration running; Stop ends it. User Manual opens integrated guidance. Existing reader shortcuts remain available; installation does not replace any desktop shortcuts.
+Click the headphones bar icon for ▶ Start / ❚❚ Pause / ■ Stop and three collapsible groups: **Reading** (text language, speed, PDF, Kindle and area options), **Voice** (provider, voice, audio output) and **Translation** (off by default). Right-click the icon to start or stop reading directly. When something is missing, the popup names the one next step and a **Set up automatically** button installs it. Settings save immediately. Closing the popup leaves narration running; Stop ends it. User Manual opens integrated guidance. Existing reader shortcuts remain available; installation does not replace any desktop shortcuts.
 
 The bridge uses only a private local Unix socket and Python standard library. Native Omarchy components are under `native/` with the upstream license. Removing this widget does not remove the reader or its preferences.
 
@@ -24,7 +24,7 @@ voice → Use provider**, focus your text window and press **▶ Start** (or rig
 
 The main panel keeps the active provider, voice and audio output visible. Provider
 setup stays separate from active settings until you test and activate it. Reading
-options expand Kindle, following, highlighting and area controls. Advanced contains
+options expand PDF, Kindle, following, highlighting and area controls. Advanced contains
 manual files and maintenance. See [MANUAL.md](MANUAL.md) for the full setup flow.
 
 **51 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
@@ -78,7 +78,7 @@ Removing the widget preserves reader settings, models and an existing reader ser
 
 ## Privacy and lifecycle
 
-OCR and local speech stay on your machine. Screenshots and generated audio use a private runtime directory and are cleaned when reading stops. The reader follows the active window, optionally follows page changes and can highlight the passage being read. Automatic page turning sends a Right-arrow key to the target Kindle window. Closing the popup leaves narration running; Stop cancels reader-owned work and playback. Online speech sends recognized text to your chosen HTTPS provider after Start, as described below.
+OCR and local speech stay on your machine. Screenshots and generated audio use a private runtime directory and are cleaned when reading stops. The reader follows the active window, optionally follows page changes and can highlight the passage being read. Automatic page turning sends a Right-arrow key to the target Kindle window, or the next-page key `n` to the target PDF viewer window (through `hyprctl dispatch hl.dsp.send_shortcut`, only while that window has focus). Closing the popup leaves narration running; Stop cancels reader-owned work and playback. Online speech sends recognized text to your chosen HTTPS provider after Start, as described below.
 
 ## Voice availability
 
@@ -87,6 +87,18 @@ llama.cpp TTS runner, compatible backbone, audio projection and speaker recordin
 Only available voices are selectable. Custom file paths remain under Advanced.
 Installing a chat model does not install a speech voice; Whisper is speech-to-text.
 See [MANUAL.md](MANUAL.md) for voice requirements and model update instructions.
+
+## PDF reading
+
+Open a PDF in **Evince** (GNOME Document Viewer) or **Papers** and press **▶ Start**.
+Screen Narrator finds the page in the window and reads only its text: the toolbar, the
+thumbnail sidebar and neighbouring pages are left out, and page numbers at the top or bottom
+of a page are not read aloud. With **Turn Kindle and PDF pages after reading** on, it moves to
+the next page when the page is finished (a page taller than the window is scrolled first) and
+stops with **End of document** after the last page. **Read only the page in PDF viewers** turns
+the page detection off, for example for slides without a visible page border. PDFs are read
+from the screen with OCR like any other window, so scanned PDFs work too; the file itself is
+never opened by the reader.
 
 ## Translation (optional)
 
@@ -105,7 +117,7 @@ OCR stays local. Online speech sends the text being read to the selected provide
 
 ## Marketplace summary
 
-**Screen Narrator — read any window aloud, in your language.** Local OCR and local voices (Kokoro, Piper) in 51 languages, with optional translation before reading: offline NLLB-200, or your own llama.cpp, LM Studio or Ollama server. One-click setup per language, collapsible Reading / Voice / Translation groups, passage highlighting, reading areas and automatic Kindle page turning. Optional OpenAI-compatible speech servers. No model or credential is bundled; nothing leaves your computer unless you choose a remote server.
+**Screen Narrator — read any window aloud, in your language.** Local OCR and local voices (Kokoro, Piper) in 51 languages, with optional translation before reading: offline NLLB-200, or your own llama.cpp, LM Studio or Ollama server. One-click setup per language, collapsible Reading / Voice / Translation groups, passage highlighting, reading areas, PDF reading in Evince and Papers (page only, no page numbers) and automatic PDF and Kindle page turning. Optional OpenAI-compatible speech servers. No model or credential is bundled; nothing leaves your computer unless you choose a remote server.
 
 ## Development checks
 
@@ -121,7 +133,7 @@ MIT license. Vendored Omarchy controls retain their upstream MIT notice in `nati
 Kokoro keeps its selected model in a reusable subprocess during reading, so
 successive chunks and pages avoid reloading the voice model. Turning the reader
 off releases it; changing a page during synthesis cancels the old request before
-reusing audio files. Automatic Kindle page turns scan after 250 ms, confirm that
+reusing audio files. Automatic Kindle and PDF page turns scan after 250 ms, confirm that
 the page image is stable, and then run one OCR pass.
 
 ## Reading shortcuts

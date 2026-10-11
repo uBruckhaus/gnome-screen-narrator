@@ -16,10 +16,11 @@ MANUAL = [
         'Choose the text language and a local voice for it. Kokoro covers nine languages, Piper the others (51 in total).',
         'Kokoro is the default neural engine; Piper Fast is the lower-latency option. Qwen voices can need a longer warm-up.',
         'Set reading speed from 0.6× to 2×. Save applies your changes; Cancel discards uncommitted settings.']),
-    ('3. Continuous Reading & Kindle', [
+    ('3. Continuous Reading, PDF & Kindle', [
         'Enable automatic reading to follow changes to the active window or page.',
         'Kindle cropping skips the toolbar, margins and progress bar.',
-        'Automatic page turning advances the Kindle page after narration finishes.',
+        'In a PDF viewer (Evince, Papers) only the page is read: no toolbar, thumbnails or page numbers.',
+        'Automatic page turning advances Kindle and PDF pages after narration finishes and stops at the end of the document.',
         'Manual page changes stop the old speech and resume after the new text settles.']),
     ('4. Reading Area & Highlighting', [
         'Select area lets you choose a precise region. The settings dialog closes before selection.',
