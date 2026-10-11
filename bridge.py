@@ -15,7 +15,62 @@ COMMANDS = {'status', 'on', 'off', 'toggle', 'read', 'pause', 'select-area', 'cl
             'cancel-kokoro-install', 'setup', 'cancel-setup', 'test-voice',
             'check-kokoro-updates', 'update-kokoro', 'test-provider', 'use-provider', 'probe-provider',
             'test-translation', 'translator-models', 'install-translator', 'cancel-translator-install',
-            'configure-translator-token'}
+            'configure-translator-token', 'paste'}
+PASTE_LIMIT = 8 * 1024
+PASTE_TYPES = ('text/plain;charset=utf-8', 'text/plain', 'UTF8_STRING', 'TEXT', 'STRING')
+
+
+def run_bounded(args, limit, timeout):
+    """Run a helper with an output cap and one overall deadline: (returncode, bytes).
+    Raises ValueError when the output is too large and TimeoutError when it is too slow."""
+    deadline = time.monotonic() + timeout
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL)
+    chunks, size = [], 0
+    try:
+        os.set_blocking(proc.stdout.fileno(), False)
+        while True:
+            if time.monotonic() > deadline:
+                raise TimeoutError('took too long')
+            try:
+                chunk = os.read(proc.stdout.fileno(), 4096)
+            except BlockingIOError:
+                time.sleep(0.01)
+                continue
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > limit:
+                raise ValueError('too large')
+            chunks.append(chunk)
+        return proc.wait(timeout=max(0.1, deadline - time.monotonic())), b''.join(chunks)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait()
+        proc.stdout.close()
+
+
+def read_clipboard():
+    """Explicit paste (Ctrl+V in a popup field): plain text from the Wayland clipboard,
+    at most 8 KiB within 2 seconds. Text fields never read the clipboard on their own."""
+    try:
+        code, offered = run_bounded(['wl-paste', '--list-types'], 4096, 1.0)
+    except (OSError, ValueError, TimeoutError):
+        return dict(clipboard='')
+    if code != 0:
+        return dict(clipboard='')  # empty clipboard
+    types = offered.decode('utf-8', 'replace').split()
+    mime = next((t for t in PASTE_TYPES if t in types), None)
+    if not mime:
+        return dict(clipboard='')
+    try:
+        code, data = run_bounded(['wl-paste', '--no-newline', '--type', mime], PASTE_LIMIT, 2.0)
+    except ValueError:
+        raise ValueError('Clipboard text is longer than 8 KiB; paste a shorter value.')
+    except TimeoutError:
+        raise ValueError('The clipboard did not answer in time.')
+    text = data.decode('utf-8', 'replace') if code == 0 else ''
+    return dict(clipboard=''.join(c for c in text if c >= ' ' and c != '\x7f'))
 
 
 def socket_request(payload):
@@ -66,6 +121,8 @@ def request(payload):
     command = payload.get('command', 'status')
     if command not in COMMANDS:
         raise ValueError('Unknown command')
+    if command == 'paste':
+        return read_clipboard()
     setup = setup_state()
     if command == 'setup':
         language = payload.get('language', languages.default_language())

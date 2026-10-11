@@ -1465,6 +1465,9 @@ class Reader(QObject):
         language.setCurrentIndex(language.findData(self.settings['language']))
         form.addRow('Text language', language)
         speed = QDoubleSpinBox()
+        # Read-only text: a paste into the line edit would read the clipboard without limits.
+        speed.lineEdit().setReadOnly(True)
+        speed.lineEdit().setContextMenuPolicy(Qt.ContextMenuPolicy.NoContextMenu)
         speed.setRange(.6, 2.)
         speed.setSingleStep(.05)
         speed.setSuffix('×')

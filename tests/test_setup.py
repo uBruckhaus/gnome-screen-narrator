@@ -149,3 +149,49 @@ class SetupTests(unittest.TestCase):
             for command in ('toggle', 'on', 'off'):
                 self.assertIn('Exec=simple-reader ' + command, text)
             self.assertIn('Name=Screen Narrator', text)
+
+
+class ClipboardTests(unittest.TestCase):
+    """Text fields never read the clipboard; explicit paste reads it bounded."""
+
+    def test_bounded_runner_stops_endless_and_silent_helpers(self):
+        import time
+        self.assertEqual(bridge.run_bounded(['printf', 'ok'], 100, 3), (0, b'ok'))
+        with self.assertRaises(ValueError):
+            bridge.run_bounded(['yes'], 64 * 1024, 5)                 # streaming owner
+        start = time.monotonic()
+        with self.assertRaises(TimeoutError):
+            bridge.run_bounded(['sleep', '30'], 1024, 1)             # owner that never answers
+        self.assertLess(time.monotonic() - start, 4)
+
+    def test_paste_reads_plain_text_only_and_cleans_it(self):
+        def fake(args, limit, timeout):
+            if '--list-types' in args:
+                return 0, b'image/png\ntext/plain;charset=utf-8\n'
+            self.assertEqual(args[-1], 'text/plain;charset=utf-8')
+            self.assertLessEqual(limit, 8 * 1024)
+            self.assertLessEqual(timeout, 2)
+            return 0, b'sk-token\r\n\x1b[31mred'
+        with patch('bridge.run_bounded', side_effect=fake):
+            self.assertEqual(bridge.request({'command': 'paste'}), {'clipboard': 'sk-token[31mred'})
+
+    def test_paste_without_text_or_too_large(self):
+        with patch('bridge.run_bounded', return_value=(0, b'image/png\n')):
+            self.assertEqual(bridge.read_clipboard(), {'clipboard': ''})
+        with patch('bridge.run_bounded', return_value=(1, b'')):
+            self.assertEqual(bridge.read_clipboard(), {'clipboard': ''})   # empty clipboard
+        calls = iter([(0, b'text/plain\n')])
+        def too_large(args, limit, timeout):
+            if '--list-types' in args:
+                return next(calls)
+            raise ValueError('too large')
+        with patch('bridge.run_bounded', side_effect=too_large), self.assertRaisesRegex(ValueError, '8 KiB'):
+            bridge.read_clipboard()
+
+    def test_no_qt_text_inputs_in_the_shell_ui(self):
+        import re
+        root = Path(__file__).resolve().parent.parent
+        for qml in list(root.glob('*.qml')) + list((root / 'native').rglob('*.qml')):
+            code = re.sub(r'//[^\n]*', '', qml.read_text())
+            for pattern in (r'\bTextInput\s*\{', r'\bTextEdit\s*\{', r'\bTextArea\s*\{', r'QQC\.TextField', r'editable:\s*true'):
+                self.assertIsNone(re.search(pattern, code), f'{qml.name}: {pattern}')

@@ -258,6 +258,9 @@ Ui.Panel {
     if (needsOfflineTranslator()) args.translator = "nllb"
     request(Object.assign({command: "setup"}, args))
   }
+  // Explicit paste (Ctrl+V) for text fields: the bridge reads the clipboard bounded.
+  property var pasteTarget: null
+  function pasteInto(field) { pasteTarget = field; request({command: "paste"}) }
   function applyFix(fix) {
     if (fix.command) { request(Object.assign({command: fix.command}, fix.args || {})); return }
     if (fix.panel === "providers") manageProvider(activeEngine)
@@ -290,6 +293,11 @@ Ui.Panel {
     try {
       var data = JSON.parse(text)
       if (data.error) { actionError = data.error; message = actionError; return }
+      if (currentRequest.command === "paste") {
+        if (pasteTarget && data.clipboard) pasteTarget.insert(data.clipboard)
+        pasteTarget = null
+        return
+      }
       if (currentRequest.command === "use-provider") {
         providerToken.text = ""
         showProviders = false
@@ -518,7 +526,7 @@ Ui.Panel {
                   Column {
                     width: parent.width; spacing: Style.space(4); visible: root.activeEngine === "Online"
                     Ui.PanelSectionHeader { text: "Voice / speaker" }
-                    Ui.TextField { width: parent.width; text: root.config.online_voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; placeholderText: "Speech server voice ID"; onEditingFinished: root.set("online_voice", text) }
+                    Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.config.online_voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; placeholderText: "Speech server voice ID"; onEditingFinished: root.set("online_voice", text) }
                   }
                   Ui.Dropdown { width: parent.width; label: "Audio output · speakers / headphones"; options: root.state.audio_outputs || [{value: "auto", label: "System default"}]; value: root.config.audio_output || "auto"; enabled: root.backendReady && !root.setupBusy; onChanged: root.set("audio_output", value) }
                   Text { width: parent.width; visible: (root.config.audio_output || "auto") !== "auto" && !(root.state.audio_outputs || []).some(function(v) { return v.value === root.config.audio_output }); text: "Selected audio output is disconnected. Reconnect it or choose System default."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
@@ -607,13 +615,13 @@ Ui.Panel {
               width: parent.width; spacing: Style.spacing.md; visible: root.selectedEngine === "Online"
               Text { width: parent.width; text: "Connect an OpenAI-compatible speech server. Remote servers receive the text being read and may charge for speech. Localhost servers can stay on this device."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
               Ui.PanelSectionHeader { text: "Server address" }
-              Ui.TextField { width: parent.width; text: root.onlineEndpoint; placeholderText: "https://your-server/v1"; onTextChanged: root.onlineEndpoint = text }
+              Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.onlineEndpoint; placeholderText: "https://your-server/v1"; onTextChanged: root.onlineEndpoint = text }
               Ui.PanelSectionHeader { text: "Speech model" }
-              Ui.TextField { width: parent.width; text: root.onlineModel; placeholderText: "Speech model ID"; onTextChanged: root.onlineModel = text }
+              Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.onlineModel; placeholderText: "Speech model ID"; onTextChanged: root.onlineModel = text }
               Ui.PanelSectionHeader { text: "Voice / speaker" }
-              Ui.TextField { width: parent.width; text: root.onlineVoice; placeholderText: "Voice ID"; onTextChanged: root.onlineVoice = text }
+              Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.onlineVoice; placeholderText: "Voice ID"; onTextChanged: root.onlineVoice = text }
               Ui.PanelSectionHeader { text: "API key / token (if required)" }
-              Ui.TextField { id: providerToken; width: parent.width; password: true; placeholderText: root.state.key_ready && root.onlineEndpoint === root.config.online_endpoint ? "Existing token will be used · enter to replace" : "Enter token, or leave empty for a local server" }
+              Ui.TextField { pasteHandler: root.pasteInto; id: providerToken; width: parent.width; password: true; placeholderText: root.state.key_ready && root.onlineEndpoint === root.config.online_endpoint ? "Existing token will be used · enter to replace" : "Enter token, or leave empty for a local server" }
               Ui.Toggle { width: parent.width; label: "Remember token on this device"; checked: root.rememberToken; onClicked: root.rememberToken = !checked }
               Text { width: parent.width; visible: root.rememberToken; text: "Saved tokens are stored in an owner-only plaintext file."; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
             }
@@ -644,7 +652,7 @@ Ui.Panel {
                   Ui.PanelSectionHeader { text: modelData.label }
                   Row {
                     width: parent.width; spacing: Style.spacing.md
-                    Ui.TextField { width: parent.width - browseButton.width - parent.spacing; text: root.candidatePath(modelData.key); placeholderText: "Absolute file path or ~/"; onEditingFinished: root.setCandidatePath(modelData.key, text) }
+                    Ui.TextField { pasteHandler: root.pasteInto; width: parent.width - browseButton.width - parent.spacing; text: root.candidatePath(modelData.key); placeholderText: "Absolute file path or ~/"; onEditingFinished: root.setCandidatePath(modelData.key, text) }
                     Ui.Button { focusable: true; id: browseButton; text: "Browse…"; onClicked: root.chooseFile(modelData.key) }
                   }
                 }
@@ -670,14 +678,14 @@ Ui.Panel {
             Column {
               width: parent.width; spacing: Style.spacing.md; visible: (root.config.translator || "llm") === "llm"
               Ui.Dropdown { id: presetPicker; width: parent.width; label: "Server"; enabled: !root.enabledReader; options: Object.keys(root.state.translator_endpoints || {}).map(function(k) { return {value: k, label: k + " · " + root.state.translator_endpoints[k]} }).concat([{value: "Custom", label: "Custom · any OpenAI-compatible server"}]); value: root.translatorPreset; onChanged: { if (value !== "Custom") root.set("translator_endpoint", root.state.translator_endpoints[value]); presetPicker.value = Qt.binding(function() { return root.translatorPreset }) } }
-              Ui.TextField { width: parent.width; text: root.config.translator_endpoint || ""; enabled: !root.enabledReader; placeholderText: "http://127.0.0.1:8080/v1 or https://server/v1"; onEditingFinished: if (text !== root.config.translator_endpoint) root.set("translator_endpoint", text) }
-              Ui.TextField { width: parent.width; text: root.config.translator_model || ""; enabled: !root.enabledReader; placeholderText: "Model name, e.g. as shown by Refresh models"; onEditingFinished: if (text !== root.config.translator_model) root.set("translator_model", text) }
+              Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.config.translator_endpoint || ""; enabled: !root.enabledReader; placeholderText: "http://127.0.0.1:8080/v1 or https://server/v1"; onEditingFinished: if (text !== root.config.translator_endpoint) root.set("translator_endpoint", text) }
+              Ui.TextField { pasteHandler: root.pasteInto; width: parent.width; text: root.config.translator_model || ""; enabled: !root.enabledReader; placeholderText: "Model name, e.g. as shown by Refresh models"; onEditingFinished: if (text !== root.config.translator_model) root.set("translator_model", text) }
               Ui.SearchableDropdown { placeholderText: "Type to filter models…"; id: translatorModelPicker; width: parent.width; visible: (root.state.translator_models || []).length > 0; label: "Models on the server"; enabled: !root.enabledReader; options: (root.state.translator_models || []).map(function(m) { return {value: m, label: m} }); value: root.config.translator_model || ""; onChanged: { root.set("translator_model", value); translatorModelPicker.value = Qt.binding(function() { return root.config.translator_model || "" }) } }
               Flow {
                 width: parent.width; spacing: Style.spacing.md
                 Ui.Button { focusable: true; text: root.state.translator_models_loading ? "Refreshing…" : "Refresh models"; bordered: true; enabled: !root.state.translator_models_loading; onClicked: root.request({command: "translator-models"}) }
               }
-              Ui.TextField { id: translatorToken; width: parent.width; password: true; enabled: !root.enabledReader; placeholderText: root.state.translator_key_ready ? "Token in use · enter to replace" : "Token, only for servers that need one" }
+              Ui.TextField { pasteHandler: root.pasteInto; id: translatorToken; width: parent.width; password: true; enabled: !root.enabledReader; placeholderText: root.state.translator_key_ready ? "Token in use · enter to replace" : "Token, only for servers that need one" }
               Ui.Toggle { width: parent.width; label: "Remember token on this device"; checked: root.rememberTranslatorToken; onClicked: root.rememberTranslatorToken = !checked }
               Flow {
                 width: parent.width; spacing: Style.spacing.md
