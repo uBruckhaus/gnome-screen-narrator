@@ -1037,7 +1037,7 @@ class Reader(QObject):
                 return
             if code:
                 self.queue.clear()
-                self.fail('Voice generation failed. Select Read active window again to retry.\n' + err[-500:])
+                self.fail('Voice generation failed. Select Start reading to retry.\n' + err[-500:])
                 return
             self.ready_file = wav_file
             self.pump_pipeline()

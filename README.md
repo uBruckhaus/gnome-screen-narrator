@@ -20,7 +20,7 @@ omarchy plugin enable ubruckhaus.simple-reader
 
 Open the headphones widget and **Add / manage speech providers…**. Choose your
 reading language and Kokoro or Piper, then install the voice. Then choose **Test provider
-voice → Use provider**, focus your text window and **Read active window**.
+voice → Use provider**, focus your text window and **Start reading**.
 
 The main panel keeps the active provider, voice and audio output visible. Provider
 setup stays separate from active settings until you test and activate it. Reading
@@ -71,7 +71,7 @@ See [MANUAL.md](MANUAL.md) for voice requirements and model update instructions.
 
 Under **Add / manage speech providers…**, choose **Speech server**, enter an HTTPS endpoint, choose or enter a speech model ID and voice ID, enter an API key/bearer token if required, then **Test provider voice → Use provider**. **Refresh models** is optional; enter the model manually when discovery is unavailable. The provider must support the [OpenAI-compatible speech request](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) at `/v1/audio/speech` with WAV output. Model discovery can also list chat models, so select a speech-capable model. HTTP is allowed only on loopback for local compatible servers.
 
-OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Read active window or Test voice. Tokens remain in reader memory unless **Remember token on this device** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
+OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Start reading or Test voice. Tokens remain in reader memory unless **Remember token on this device** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
 
 ## Marketplace summary
 

@@ -1,6 +1,6 @@
 # Screen Narrator user manual
 
-Click the headphones icon in the Omarchy bar to open reading controls. Read active window begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
+Click the headphones icon in the Omarchy bar to open reading controls. Start reading begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
 
 Choose voice, text language (50 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
 
@@ -65,7 +65,7 @@ Whisper is speech recognition, so it is not offered as a reading voice.
 
 Open **Add / manage speech providers… → Speech server**, enter an HTTPS endpoint, choose or enter a speech model ID and voice ID, then enter an API key/bearer token if needed, **Test provider voice**, and **Use provider**. **Refresh models** is optional; enter the model manually when discovery is unavailable. The provider must support the [OpenAI-compatible speech request](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) at `/v1/audio/speech` with WAV output. Model discovery can also list chat models, so select a speech-capable model. HTTP is allowed only on loopback for local compatible servers.
 
-OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Read active window or Test voice. Tokens remain in reader memory unless **Remember token on this device** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
+OCR stays local. Online speech sends the text being read to the selected provider and can incur provider charges. Requests occur after Start reading or Test voice. Tokens remain in reader memory unless **Remember token on this device** is selected. Saved tokens are owner-only plaintext at `~/.config/kindle-reader/speech-credentials.json`, bound to the configured endpoint; they are not included in status responses, shell.json or process arguments. Clear token removes the stored token. Closing the popup leaves narration running; Stop cancels speech requests and playback.
 
 ## Check for Kokoro model updates
 

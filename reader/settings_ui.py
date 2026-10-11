@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
 
 MANUAL = [
     ('1. Reading & Tray Controls', [
-        'Focus the window containing the text, then click Read active window in the Omarchy bar popup. Existing reader shortcuts remain available.',
+        'Focus the window containing the text, then click Start reading in the Omarchy bar popup. Existing reader shortcuts remain available.',
         'Right-click the tray icon for voice, speed, Read again, settings and quit.',
         'Middle-click the tray icon to pause or resume. Off stops speech and reader-owned work.']),
     ('2. Voice, Language & Speed', [
