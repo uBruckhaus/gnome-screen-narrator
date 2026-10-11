@@ -427,7 +427,7 @@ class Reader(QObject):
         self.toggle_action.triggered.connect(lambda: self.set_enabled(not self.enabled, notify=True))
         self.start_action = self.menu.addAction('Start reading', lambda: self.set_enabled(True, notify=True) if not self.enabled else None)
         self.stop_action = self.menu.addAction('Stop reading', lambda: self.set_enabled(False, notify=True) if self.enabled else None)
-        self.status_action = self.menu.addAction('Off')
+        self.status_action = self.menu.addAction('Status: Off')
         self.status_action.setEnabled(False)
         self.menu.addSeparator()
         self.read_action = self.menu.addAction('Read active window again', self.read_again)
@@ -436,15 +436,14 @@ class Reader(QObject):
         self.select_area_action = self.menu.addAction('Select reading area…', self.select_area)
         self.clear_area_action = self.menu.addAction('Reset area (Full window)', self.clear_area)
         self.menu.addSeparator()
+        # Choice submenus are rebuilt when their options change, so Launch & Bind
+        # (which reads this menu over D-Bus) always lists the current choices.
         self.voice_menu = self.menu.addMenu('Voice')
-        self.voice_group = QActionGroup(self)
         self.voice_actions = {}
-        for key, (name, *_rest) in available_voices(self.settings['language'], self.settings).items():
-            action = self.voice_menu.addAction(name)
-            action.setCheckable(True)
-            self.voice_group.addAction(action)
-            action.triggered.connect(lambda checked=False, k=key: self.set_voice(k))
-            self.voice_actions[key] = action
+        self.language_menu = self.menu.addMenu('Text language')
+        self.output_menu = self.menu.addMenu('Audio output')
+        self.choice_signature = None
+        self.menu.aboutToShow.connect(lambda: self.refresh_choice_menus(force=True))
         self.speed_menu = self.menu.addMenu('Reading speed')
         self.speed_group = QActionGroup(self)
         self.speed_actions = {}
@@ -489,6 +488,41 @@ class Reader(QObject):
         temp.write_text(json.dumps(getattr(self, 'preview_original', None) or self.settings, indent=2) + '\n')
         temp.replace(CONFIG)
 
+    def voice_language(self):
+        return self.settings['language']
+
+    def fill_choice_menu(self, menu, choices, current, handler):
+        """Replace a submenu with checkable (value, label) choices; returns value -> action."""
+        menu.clear()
+        group = QActionGroup(menu)
+        actions = {}
+        for value, label in choices:
+            action = menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(value == current)
+            group.addAction(action)
+            action.triggered.connect(lambda checked=False, v=value: handler(v))
+            actions[value] = action
+        return actions
+
+    def refresh_choice_menus(self, force=False):
+        voices = [(key, name) for key, (name, *_rest) in available_voices(self.voice_language(), self.settings).items()]
+        outs = [(o['value'], o['label']) for o in outputs()]
+        signature = (tuple(voices), tuple(outs), self.settings['voice'], self.settings['language'], self.settings['audio_output'])
+        if signature == self.choice_signature and not force:
+            return
+        self.choice_signature = signature
+        self.voice_actions = self.fill_choice_menu(self.voice_menu, voices, self.settings['voice'], self.set_voice)
+        self.fill_choice_menu(self.language_menu, [(o['value'], o['label']) for o in languages.options()],
+                              self.settings['language'], lambda v: self.menu_setting('language', v))
+        self.fill_choice_menu(self.output_menu, outs, self.settings['audio_output'], lambda v: self.menu_setting('audio_output', v))
+
+    def menu_setting(self, key, value):
+        try:
+            self.configure_settings({key: value})
+        except ValueError as error:
+            self.fail(str(error))
+
     def update(self, status=None):
         if status:
             if status != self.status:
@@ -499,7 +533,9 @@ class Reader(QObject):
             self.toggle_action.setChecked(self.enabled)
         if hasattr(self, 'stop_action'):
             self.stop_action.setEnabled(True)
-        self.status_action.setText(self.status)
+        self.status_action.setText('Status: ' + self.status)
+        if hasattr(self, 'language_menu'):
+            self.refresh_choice_menus()
         self.pause_action.setText('Resume' if self.paused else 'Pause')
         self.pause_action.setEnabled(self.enabled)
         if self.settings['voice'] in self.voice_actions:
