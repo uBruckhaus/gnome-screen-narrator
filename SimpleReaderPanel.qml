@@ -174,6 +174,7 @@ Ui.Panel {
   function goBack() {
     if (showManualView) showManualView = false
     else if (showProviders) closeProviders()
+    else if (showTranslation) showTranslation = false
     else return false
     content.forceActiveFocus()
     return true
