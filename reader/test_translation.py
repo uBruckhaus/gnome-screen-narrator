@@ -105,10 +105,13 @@ class TranslationReadinessTests(unittest.TestCase):
         self.assertEqual(self.checks(translate_to=''), [])
 
     def test_missing_model_and_stopped_server_are_reported(self):
-        self.assertIn('No translation model', self.checks(translator_model='')[0]['problem'])
         with patch('reader.nllb_ready', return_value=True):
-            fixes = [f['label'] for f in self.checks(translator_model='')[0]['fixes']]
-        self.assertEqual(fixes, ['Use offline translator', 'Open Translation', 'Turn translation off'])
+            check = self.checks(translator_model='')[0]
+        self.assertIn('no translator is set up', check['problem'])
+        self.assertEqual([f['label'] for f in check['fixes']], ['Use the offline translator', 'Turn translation off', 'Use a translation server instead…'])
+        with patch('reader.nllb_ready', return_value=False):
+            first = self.checks(translator_model='')[0]['fixes'][0]
+        self.assertEqual(first['command'], 'install-translator')
         with patch('reader.translator_reachable', return_value=False):
             self.assertIn('not running', self.checks()[0]['problem'])
         with patch('reader.translator_reachable', return_value=True):
@@ -117,6 +120,14 @@ class TranslationReadinessTests(unittest.TestCase):
     def test_offline_translator_must_be_installed(self):
         with patch('reader.nllb_ready', return_value=False):
             self.assertIn('not installed', self.checks(translator='nllb')[0]['problem'])
+
+    def test_offline_translator_is_chosen_automatically(self):
+        subject = SimpleNamespace(settings=dict(DEFAULTS, language='de', translate_to='en', translator='llm', translator_model='', provider='Online'),
+                                  save=Mock(), translator_models_loading=False, refresh_translator_models=Mock())
+        with patch('reader.nllb_ready', return_value=True):
+            Reader.auto_configure(subject)
+        self.assertEqual(subject.settings['translator'], 'nllb')
+        subject.save.assert_called()
 
     def test_probe_only_local_servers(self):
         import reader

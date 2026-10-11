@@ -612,7 +612,13 @@ class Reader(QObject):
         return checks
 
     def auto_configure(self):
-        """Fix what needs no decision: select an installed voice for the spoken language."""
+        """Fix what needs no decision: a translator for translation, an installed voice for the spoken language."""
+        if self.settings.get('translate_to') and self.settings.get('translator') == 'llm' and not self.settings.get('translator_model'):
+            if nllb_ready():
+                self.settings['translator'] = 'nllb'
+                self.save()
+            elif translator_reachable(self.settings['translator_endpoint']) and not getattr(self, 'translator_models_loading', True):
+                self.refresh_translator_models()  # picks the first model when it answers
         if self.settings.get('provider', 'Local') != 'Local':
             return
         choices = available_voices(self.voice_language(), self.settings)
@@ -626,20 +632,20 @@ class Reader(QObject):
         if not target:
             return []
         label = 'Translation · ' + languages.name(self.settings['language']) + ' → ' + languages.name(target)
+        offline = dict(label='Use the offline translator', settings=dict(translator='nllb'))
+        install = dict(label='Install offline translator (about 1.4 GB, non-commercial use)', command='install-translator')
+        off = dict(label='Turn translation off', settings=dict(translate_to=''))
+        server = dict(label='Use a translation server instead…', panel='translation')
         if self.settings.get('translator') == 'nllb':
-            ok, problem = nllb_ready(), 'The offline translator is not installed. Open Translation → Install offline translator.'
+            ok, problem, fixes = nllb_ready(), 'The offline translator is not installed yet.', [install, off, server]
         elif not self.settings.get('translator_model'):
-            ok, problem = False, 'No translation model chosen. Open Translation, start your server and use Refresh models.'
+            ok, problem = False, 'Translation is on, but no translator is set up yet.'
+            fixes = [offline, off, server] if nllb_ready() else [install, off, server]
         else:
-            ok, problem = translator_reachable(self.settings['translator_endpoint']), \
-                'The translation server at ' + self.settings['translator_endpoint'] + ' is not running. Start it or turn translation off.'
-        fixes = []
-        if not ok:
-            if self.settings.get('translator') != 'nllb' and nllb_ready():
-                fixes.append(dict(label='Use offline translator', settings=dict(translator='nllb')))
-            fixes.append(dict(label='Open Translation', panel='translation'))
-            fixes.append(dict(label='Turn translation off', settings=dict(translate_to='')))
-        return [dict(ok=ok, label=label, problem='' if ok else problem, fixes=fixes)]
+            ok = translator_reachable(self.settings['translator_endpoint'])
+            problem = 'The translation server (' + self.settings['translator_endpoint'] + ') is not running.'
+            fixes = ([offline] if nllb_ready() else []) + [off, server]
+        return [dict(ok=ok, label=label, problem='' if ok else problem, fixes=[] if ok else fixes)]
 
     def voice_language(self):
         return speech_language(self.settings)
@@ -1702,6 +1708,9 @@ class Reader(QObject):
                 return
             try:
                 self.translator_models = json.loads(out)['models'][:200]
+                if self.translator_models and not self.settings.get('translator_model'):
+                    self.settings['translator_model'] = self.translator_models[0]
+                    self.save()
                 self.translation_status = 'Models refreshed. Choose a chat/instruct model.' if self.translator_models else 'The server lists no models; enter the model name manually.'
             except (ValueError, KeyError, TypeError):
                 self.translation_status = 'Cannot read the server model list.'
@@ -1719,6 +1728,9 @@ class Reader(QObject):
         def done(code, out, err):
             self.installing_translator = False
             self.translator_install_task = None
+            if not code:
+                self.settings['translator'] = 'nllb' if self.settings.get('translate_to') else self.settings['translator']
+                self.save()
             self.translation_status = 'Offline translator installed. Choose Test translation.' if not code else (err.strip()[-500:] or 'Offline translator installation failed. Retry when your network is available.')
         self.translator_install_task = Task(self, [sys.executable, Path(__file__).with_name('install_nllb.py'), '--progress', progress], done, timeout=3600)
 
