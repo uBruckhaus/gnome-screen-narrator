@@ -154,6 +154,28 @@ def ocr_languages():
     return _OCR_LANGUAGES['names']
 
 
+_REACHABLE = {}
+
+
+def translator_reachable(endpoint):
+    """Whether a local translation server accepts connections (cached 5 s). Remote HTTPS
+    servers are not probed here; Test translation and reading report their errors."""
+    import urllib.parse
+    url = urllib.parse.urlsplit(endpoint)
+    if url.hostname not in ('127.0.0.1', 'localhost', '::1'):
+        return True
+    key = (url.hostname, url.port or (443 if url.scheme == 'https' else 80))
+    checked, ok = _REACHABLE.get(key, (0.0, False))
+    if time.monotonic() - checked > 5:
+        try:
+            with socket.create_connection(key, timeout=0.3):
+                ok = True
+        except OSError:
+            ok = False
+        _REACHABLE[key] = (time.monotonic(), ok)
+    return ok
+
+
 NOTICES = []  # recent warnings/errors, also shown inside the popup (notifications sit behind it)
 
 
@@ -600,7 +622,18 @@ class Reader(QObject):
             self.save()
 
     def extra_checks(self):
-        return []
+        target = self.settings.get('translate_to')
+        if not target:
+            return []
+        label = 'Translation · ' + languages.name(self.settings['language']) + ' → ' + languages.name(target)
+        if self.settings.get('translator') == 'nllb':
+            ok, problem = nllb_ready(), 'The offline translator is not installed. Open Translation → Install offline translator.'
+        elif not self.settings.get('translator_model'):
+            ok, problem = False, 'No translation model chosen. Open Translation, start your server and use Refresh models.'
+        else:
+            ok, problem = translator_reachable(self.settings['translator_endpoint']), \
+                'The translation server at ' + self.settings['translator_endpoint'] + ' is not running. Start it or turn translation off.'
+        return [dict(ok=ok, label=label, problem='' if ok else problem)]
 
     def voice_language(self):
         return speech_language(self.settings)

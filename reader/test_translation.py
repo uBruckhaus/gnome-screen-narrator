@@ -94,5 +94,33 @@ class ReaderTranslationTests(unittest.TestCase):
         subject.synthesize_chunk.assert_called_once()
 
 
+class TranslationReadinessTests(unittest.TestCase):
+    def checks(self, **settings):
+        values = dict(DEFAULTS, language='de', translate_to='en', translator='llm',
+                      translator_endpoint='http://127.0.0.1:8080/v1', translator_model='m')
+        values.update(settings)
+        return Reader.extra_checks(SimpleNamespace(settings=values))
+
+    def test_off_means_no_check(self):
+        self.assertEqual(self.checks(translate_to=''), [])
+
+    def test_missing_model_and_stopped_server_are_reported(self):
+        self.assertIn('No translation model', self.checks(translator_model='')[0]['problem'])
+        with patch('reader.translator_reachable', return_value=False):
+            self.assertIn('not running', self.checks()[0]['problem'])
+        with patch('reader.translator_reachable', return_value=True):
+            self.assertTrue(self.checks()[0]['ok'])
+
+    def test_offline_translator_must_be_installed(self):
+        with patch('reader.nllb_ready', return_value=False):
+            self.assertIn('not installed', self.checks(translator='nllb')[0]['problem'])
+
+    def test_probe_only_local_servers(self):
+        import reader
+        self.assertTrue(reader.translator_reachable('https://api.example.org/v1'))
+        reader._REACHABLE.clear()
+        self.assertFalse(reader.translator_reachable('http://127.0.0.1:9/v1'))
+
+
 if __name__ == '__main__':
     unittest.main()
