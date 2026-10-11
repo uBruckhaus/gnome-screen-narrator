@@ -120,7 +120,7 @@ tray menu. Choose **Screen Narrator** under **Running in the bar**, open its act
 menu, then **Shortcut…** and select **Start / stop reading**, **Start reading**,
 **Stop reading** or **Pause / resume**. Their menu labels stay fixed so saved
 shortcuts work in both reading states. The menu also offers **Read active window
-again**, the reading area, and the submenus **Voice**, **Text language**, **Audio
+again**, the reading area, and the submenus **Voice**, **Text language**, **Speak in (translation)**, **Audio
 output** and **Reading speed**; each entry can be clicked or bound to a key. The
 submenus follow the current settings (Voice lists the voices for the current
 language). The separate shell-plugin entry continues to open the popup.
