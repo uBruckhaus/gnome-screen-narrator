@@ -13,7 +13,9 @@ import languages
 COMMANDS = {'status', 'on', 'off', 'toggle', 'read', 'pause', 'select-area', 'clear-area',
             'configure', 'configure-token', 'online-models', 'install-kokoro',
             'cancel-kokoro-install', 'setup', 'cancel-setup', 'test-voice',
-            'check-kokoro-updates', 'update-kokoro', 'test-provider', 'use-provider', 'probe-provider'}
+            'check-kokoro-updates', 'update-kokoro', 'test-provider', 'use-provider', 'probe-provider',
+            'test-translation', 'translator-models', 'install-translator', 'cancel-translator-install',
+            'configure-translator-token'}
 
 
 def socket_request(payload):

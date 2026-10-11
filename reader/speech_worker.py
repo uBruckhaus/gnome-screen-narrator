@@ -1,4 +1,4 @@
-"""Reusable, cancellable Kokoro subprocess owned by the reader."""
+"""Reusable, cancellable worker subprocesses (Kokoro speech, translation) owned by the reader."""
 import json
 import sys
 from pathlib import Path
@@ -7,14 +7,14 @@ from PySide6.QtCore import QObject, QProcess, QTimer
 
 
 class SpeechWorker(QObject):
-    def __init__(self, owner):
+    def __init__(self, owner, script='kokoro_tts.py', label='Speech'):
         super().__init__(owner)
-        self.owner = owner
+        self.owner, self.label = owner, label
         self.pending = None
         self.buffer = b''
         self.proc = QProcess(self)
         self.proc.setProgram(sys.executable)
-        self.proc.setArguments([str(Path(__file__).with_name('kokoro_tts.py')), '--worker'])
+        self.proc.setArguments([str(Path(__file__).with_name(script)), '--worker'])
         self.proc.readyReadStandardOutput.connect(self.receive)
         self.proc.readyReadStandardError.connect(self.drain_errors)
         self.proc.finished.connect(self.exited)
@@ -22,7 +22,7 @@ class SpeechWorker(QObject):
 
     def request(self, payload, done):
         if self.pending is not None:
-            raise RuntimeError('Speech worker is busy')
+            raise RuntimeError(self.label + ' worker is busy')
         request = SpeechRequest(self, done)
         self.pending = request
         if self.proc.state() == QProcess.ProcessState.NotRunning:
@@ -39,16 +39,16 @@ class SpeechWorker(QObject):
                 continue
             try:
                 result = json.loads(line)
-                self.pending.finish(result['code'], result['error'])
+                self.pending.finish(result['code'], result['error'], output=str(result.get('text', '')))
             except (ValueError, KeyError, TypeError):
-                self.pending.finish(1, 'Invalid speech worker reply')
+                self.pending.finish(1, 'Invalid ' + self.label.lower() + ' worker reply')
 
     def drain_errors(self):
         self.proc.readAllStandardError()
 
     def exited(self, *_):
         if self.pending is not None:
-            self.pending.finish(1, 'Speech worker exited before generating audio')
+            self.pending.finish(1, self.label + ' worker exited before finishing')
 
     def error(self, error):
         if error == QProcess.ProcessError.FailedToStart:
@@ -75,7 +75,7 @@ class SpeechRequest(QObject):
     def proc(self):
         return self.worker.proc
 
-    def finish(self, code, error, cancelled=False):
+    def finish(self, code, error, cancelled=False, output=''):
         if self.worker.pending is not self:
             return
         self.timer.stop()
@@ -83,7 +83,7 @@ class SpeechRequest(QObject):
         self.worker.owner.tasks.discard(self)
         self.worker.owner.speech_tasks.discard(self)
         if not cancelled:
-            self.done(code, '', error)
+            self.done(code, output, error)
         self.deleteLater()
 
     def cancel(self):
@@ -95,4 +95,4 @@ class SpeechRequest(QObject):
     def expire(self):
         self.worker.proc.kill()
         self.worker.proc.waitForFinished(1000)
-        self.finish(1, 'Voice generation timed out')
+        self.finish(1, self.worker.label + ' timed out')

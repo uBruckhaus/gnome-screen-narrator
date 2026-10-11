@@ -23,7 +23,7 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
-def api_request(endpoint, path, token, payload=None, limit=32 * 1024 * 1024):
+def api_request(endpoint, path, token, payload=None, limit=32 * 1024 * 1024, timeout=60):
     base = endpoint_url(endpoint)
     if not base.endswith('/v1'):
         base += '/v1'
@@ -35,15 +35,15 @@ def api_request(endpoint, path, token, payload=None, limit=32 * 1024 * 1024):
     request = urllib.request.Request(base + path, headers=headers,
                                      data=json.dumps(payload).encode() if payload is not None else None)
     try:
-        with urllib.request.build_opener(NoRedirect()).open(request, timeout=60) as response:
+        with urllib.request.build_opener(NoRedirect()).open(request, timeout=timeout) as response:
             data = response.read(limit + 1)
             if len(data) > limit:
                 raise ValueError('Provider response is too large')
             return data
     except urllib.error.HTTPError as error:
-        raise ValueError(f'Provider returned HTTP {error.code}. Check endpoint, token, model and voice.') from None
+        raise ValueError(f'Server returned HTTP {error.code}. Check endpoint, token and model.') from None
     except urllib.error.URLError:
-        raise ValueError('Cannot reach the speech provider. Check endpoint and network.') from None
+        raise ValueError('Cannot reach the server. Check that it is running, the endpoint and the network.') from None
 
 
 def saved_token(path, endpoint):

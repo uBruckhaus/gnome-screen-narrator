@@ -23,6 +23,7 @@ from audio_output import outputs, validate_output, playback_output
 from install_piper import installed_settings
 import languages
 from languages import KOKORO, PIPER, kokoro_voice_language
+from translator import nllb_ready
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Qt, QLockFile
 from PySide6.QtGui import QActionGroup, QColor, QIcon, QPainter, QPen, QPixmap
@@ -53,7 +54,16 @@ for _code, (_family, _phonemes, _voices) in KOKORO.items():
     for _voice, _label in _voices:
         if not any(entry[2] == _voice for entry in VOICES.values()):
             VOICES['kokoro-' + _voice] = (_label + ' · Kokoro', 'kokoro', _voice)
-DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='')
+DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='',
+                translate_to='', translator='llm', translator_endpoint='http://127.0.0.1:8080/v1',
+                translator_model='', remember_translator_token=False)
+TRANSLATOR_ENDPOINTS = {'llama.cpp': 'http://127.0.0.1:8080/v1', 'LM Studio': 'http://127.0.0.1:1234/v1',
+                        'Ollama': 'http://127.0.0.1:11434/v1'}
+
+
+def speech_language(settings):
+    """The voice speaks the translation target when translation is on, else the text language."""
+    return settings.get('translate_to') or settings['language']
 
 
 def voice_is_available(key, settings=None):
@@ -407,6 +417,13 @@ class Reader(QObject):
         self.probed_voices = []
         self.kokoro_worker = SpeechWorker(self)
         app.aboutToQuit.connect(self.kokoro_worker.close)
+        self.translation_worker = SpeechWorker(self, 'translator.py', 'Translation')
+        app.aboutToQuit.connect(self.translation_worker.close)
+        self.translation_status = ''
+        self.translator_models = []
+        self.translator_models_loading = False
+        self.installing_translator = False
+        self.translator_install_task = None
         self.settings = DEFAULTS.copy()
         try:
             saved = json.loads(CONFIG.read_text())
@@ -417,11 +434,14 @@ class Reader(QObject):
             self.settings['voice'] = next((key for key, value in available_voices().items() if value[1] == 'kokoro'), DEFAULTS['voice'])
         if not languages.valid(self.settings['language']):
             self.settings['language'] = 'de'
+        if self.settings['translate_to'] and (not languages.valid(self.settings['translate_to']) or self.settings['translate_to'] == self.settings['language']):
+            self.settings['translate_to'] = ''
         try:
             self.settings['speed'] = min(2., max(.6, float(self.settings['speed'])))
         except (TypeError, ValueError):
             self.settings['speed'] = 1.
         self.online_token = saved_token(CONFIG.with_name('speech-credentials.json'), self.settings['online_endpoint']) if self.settings.get('remember_token') else ''
+        self.translator_token = saved_token(CONFIG.with_name('translation-credentials.json'), self.settings['translator_endpoint']) if self.settings.get('remember_translator_token') else ''
         self.online_models = []
         self.provider_status = ''
         self.models_loading = False
@@ -732,6 +752,7 @@ class Reader(QObject):
         else:
             self.timer.stop()
             self.kokoro_worker.close()
+            self.translation_worker.close()
             self.overlay.close()
             for name in ('window.png', 'ocr.png', 'ocr.txt', 'ocr.tsv', 'speech_0.txt', 'speech_0.wav', 'speech_1.txt', 'speech_1.wav'):
                 (RUNTIME / name).unlink(missing_ok=True)
@@ -1128,6 +1149,34 @@ class Reader(QObject):
         wav_file = RUNTIME / f'speech_{slot}.wav'
         self.audio_highlights[wav_file] = self.highlight_queue.pop(0) if self.highlight_queue else []
         txt_file = RUNTIME / f'speech_{slot}.txt'
+        if self.settings.get('translate_to') and not getattr(self, 'testing_voice', False):
+            self.translate_chunk(text, wav_file, txt_file)
+        else:
+            self.synthesize_chunk(text, wav_file, txt_file)
+
+    def translation_request(self, text):
+        return dict(text=text, settings=self.settings, token=self.translator_token)
+
+    def translate_chunk(self, text, wav_file, txt_file):
+        """Translate one chunk, then synthesize it; holds the TTS slot so prefetching still applies."""
+        if self.player is None:
+            self.update('Translating…')
+        if self.translation_worker.pending is not None:
+            self.translation_worker.close()  # A popup translation test yields to reading.
+        epoch = self.epoch
+        def on_done(code, out, err):
+            self.tts_task = None
+            if not self.enabled or self.epoch != epoch:
+                return
+            if code or not out.strip():
+                self.queue.clear()
+                self.fail('Translation failed. Check the translator under Translation, then select Read active window.\n' + (err or 'No text returned')[-500:])
+                return
+            self.synthesize_chunk(out, wav_file, txt_file)
+        self.tts_task = self.translation_worker.request(self.translation_request(text), on_done)
+        self.speech_tasks.add(self.tts_task)
+
+    def synthesize_chunk(self, text, wav_file, txt_file):
         txt_file.write_text(text)
 
         _, engine, reference = VOICES[self.settings['voice']]
@@ -1141,12 +1190,12 @@ class Reader(QObject):
                     '-m', reference,
                     '-i', txt_file, '-o', wav_file,
                     '-s', '1.0',  # Playback applies speed once, consistently across engines.
-                    '-l', self.settings['language']]
+                    '-l', speech_language(self.settings)]
         elif engine == 'qwen':
             args = [custom_files[0] if custom_files else HOME / '.local/bin/llama-tts',
                     '-m', custom_files[1] if custom_files else QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf',
                     '-mm', custom_files[2] if custom_files else QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf',
-                    '--tts-lang', self.settings['language'],
+                    '--tts-lang', speech_language(self.settings),
                     '--tts-speaker-file', custom_files[3] if custom_files else DATA / 'voices' / reference,
                     '-ngl', '99', '-c', '4096', '-n', '1536', '-t', '8', '--seed', '42',
                     '-f', txt_file, '-o', wav_file]
@@ -1174,7 +1223,7 @@ class Reader(QObject):
 
         if engine == 'kokoro' and online_payload is None:
             self.tts_task = self.kokoro_worker.request(
-                dict(text=text, voice=reference, language=self.settings['language'],
+                dict(text=text, voice=reference, language=speech_language(self.settings),
                      output=str(wav_file)), on_done)
             self.speech_tasks.add(self.tts_task)
         else:
@@ -1216,7 +1265,7 @@ class Reader(QObject):
         candidate = Reader.validated_settings(self, values)
         self.probed_settings = values.copy()
         self.probed_voices = [dict(value=k, label=v[0], engine=v[1])
-                              for k, v in available_voices(candidate['language'], candidate).items()]
+                              for k, v in available_voices(speech_language(candidate), candidate).items()]
 
     def test_provider(self, values, token=None):
         if self.enabled:
@@ -1278,7 +1327,7 @@ class Reader(QObject):
         self.enabled = True
         self.paused = False
         self.testing_voice = True
-        self.queue = [languages.sample(self.settings['language'])]
+        self.queue = [languages.sample(speech_language(self.settings))]
         self.highlight_queue = [[]]
         self.pump_pipeline()
 
@@ -1340,7 +1389,7 @@ class Reader(QObject):
         form = build_settings_layout(self.dialog)
         form.addRow(section_heading("Voice & Language"))
         voice = QComboBox()
-        for key, (name, *_rest) in available_voices(self.settings['language'], self.settings).items():
+        for key, (name, *_rest) in available_voices(speech_language(self.settings), self.settings).items():
             voice.addItem(name, key)
         voice.setCurrentIndex(voice.findData(self.settings['voice']))
         form.addRow('Voice', voice)
@@ -1430,7 +1479,8 @@ class Reader(QObject):
     def validated_settings(self, values):
         if not isinstance(values, dict):
             raise ValueError('Settings must be an object')
-        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output'} | PATH_KEYS
+        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output',
+                   'translate_to', 'translator', 'translator_endpoint', 'translator_model'} | PATH_KEYS
         if set(values) - allowed:
             raise ValueError('Unknown setting')
         next_settings = self.settings.copy()
@@ -1447,6 +1497,14 @@ class Reader(QObject):
                 raise ValueError('Voice runtime or required model is not installed')
             if key == 'language' and not languages.valid(value):
                 raise ValueError('Unknown language')
+            if key == 'translate_to' and value != '' and not languages.valid(value):
+                raise ValueError('Unknown translation language')
+            if key == 'translator' and value not in ('llm', 'nllb'):
+                raise ValueError('Unknown translator')
+            if key == 'translator_endpoint':
+                value = endpoint_url(value)
+            if key == 'translator_model' and (not isinstance(value, str) or len(value) > 256 or any(c in value for c in '\n\r')):
+                raise ValueError('Enter a valid translation model name')
             if key == 'speed':
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not .6 <= value <= 2.:
                     raise ValueError('Speed must be between 0.6 and 2')
@@ -1455,8 +1513,10 @@ class Reader(QObject):
             if key in PATH_KEYS:
                 value = normalize_path(value)
             next_settings[key] = value
-        if next_settings['language'] != self.settings['language'] and next_settings['provider'] == 'Local':
-            choices = available_voices(next_settings['language'], next_settings)
+        if next_settings.get('translate_to') == next_settings['language']:
+            next_settings['translate_to'] = ''
+        if speech_language(next_settings) != speech_language(self.settings) and next_settings['provider'] == 'Local':
+            choices = available_voices(speech_language(next_settings), next_settings)
             if next_settings['voice'] not in choices:
                 next_settings['voice'] = next((k for k, v in choices.items() if v[1] == 'kokoro'), next(iter(choices), DEFAULTS['voice']))
         if 'voice' in values and not voice_is_available(next_settings['voice'], next_settings):
@@ -1472,10 +1532,14 @@ class Reader(QObject):
         if getattr(self, 'preview_original', None) is not None:
             raise ValueError('Finish or stop the voice test before changing settings')
         next_settings = Reader.validated_settings(self, values)
-        restart = any(next_settings[k] != self.settings[k] for k in ('voice', 'language', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output', *PATH_KEYS))
+        restart = any(next_settings[k] != self.settings[k] for k in ('voice', 'language', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output',
+                                                                      'translate_to', 'translator', 'translator_endpoint', 'translator_model', *PATH_KEYS))
         if next_settings['online_endpoint'] != self.settings['online_endpoint']:
             self.online_token = ''
             self.online_models = []
+        if next_settings['translator_endpoint'] != self.settings['translator_endpoint']:
+            self.translator_token = ''
+            self.translator_models = []
         self.settings = next_settings
         self.auto_configure()
         self.verified_provider = None
@@ -1557,6 +1621,76 @@ class Reader(QObject):
                 self.provider_status = 'Cannot read model update result'
         self.install_task = Task(self, args, done, timeout=1800 if update else 90)
 
+    def configure_translator_token(self, token, remember):
+        if not isinstance(token, str) or '\n' in token or '\r' in token or len(token) > 16384 or not isinstance(remember, bool):
+            raise ValueError('Invalid token settings')
+        store_token(CONFIG.with_name('translation-credentials.json'), self.settings['translator_endpoint'], token, remember)
+        self.translator_token = token
+        self.settings['remember_translator_token'] = remember
+        self.save()
+        self.translation_status = 'Translation token applied' if token else 'Translation token cleared'
+
+    def test_translation(self):
+        """Translate the text language's sample sentence and show the result; no audio, no OCR."""
+        if not self.settings.get('translate_to'):
+            raise ValueError('Choose a language to translate into first')
+        if self.translation_worker.pending is not None:
+            raise ValueError('A translation is already running')
+        if self.settings['translator'] == 'nllb' and not nllb_ready():
+            raise ValueError('Install the offline translator first')
+        sample = languages.sample(self.settings['language'])
+        self.translation_status = 'Testing translation…'
+        def done(code, out, err):
+            self.translation_status = ('Translation works: ' + out.strip()[:300]) if not code else ('Translation test failed: ' + (err or 'no text')[-400:])
+        self.translation_worker.request(self.translation_request(sample), done)
+
+    def refresh_translator_models(self):
+        if self.translator_models_loading:
+            return
+        self.translator_models_loading = True
+        self.translation_status = 'Asking the translation server for its models…'
+        def done(code, out, err):
+            self.translator_models_loading = False
+            if code:
+                self.translation_status = err.strip()[-400:] or 'Model discovery failed; enter the model name manually.'
+                return
+            try:
+                self.translator_models = json.loads(out)['models'][:200]
+                self.translation_status = 'Models refreshed. Choose a chat/instruct model.' if self.translator_models else 'The server lists no models; enter the model name manually.'
+            except (ValueError, KeyError, TypeError):
+                self.translation_status = 'Cannot read the server model list.'
+        Task(self, [sys.executable, Path(__file__).with_name('translator.py')], done, timeout=30,
+             stdin_data=json.dumps({'action': 'models', 'settings': self.settings, 'token': self.translator_token}))
+
+    def install_translator(self):
+        if self.enabled:
+            raise ValueError('Stop reading before installing the offline translator')
+        if self.installing_translator:
+            return
+        self.installing_translator = True
+        progress = RUNTIME / 'translator-install.json'
+        progress.unlink(missing_ok=True)
+        def done(code, out, err):
+            self.installing_translator = False
+            self.translator_install_task = None
+            self.translation_status = 'Offline translator installed. Choose Test translation.' if not code else (err.strip()[-500:] or 'Offline translator installation failed. Retry when your network is available.')
+        self.translator_install_task = Task(self, [sys.executable, Path(__file__).with_name('install_nllb.py'), '--progress', progress], done, timeout=3600)
+
+    def cancel_translator_install(self):
+        if self.translator_install_task:
+            self.translator_install_task.cancel()
+            self.translator_install_task = None
+        self.installing_translator = False
+        self.translation_status = 'Offline translator installation cancelled; verified files are kept.'
+
+    def translator_install_status(self):
+        if self.installing_translator:
+            try:
+                return json.loads((RUNTIME / 'translator-install.json').read_text()).get('message', 'Installing offline translator…')
+            except (OSError, ValueError):
+                return 'Installing offline translator…'
+        return self.translation_status
+
     def install_kokoro(self, language):
         if language not in KOKORO:
             raise ValueError('Kokoro has no voice for this language; use Piper')
@@ -1614,10 +1748,15 @@ class Reader(QObject):
             elif command == 'configure': self.configure_settings(request['settings'])
             elif command == 'configure-token': self.configure_token(request.get('token', ''), request.get('remember_token', False))
             elif command == 'online-models': self.refresh_online_models()
-            elif command == 'install-kokoro': self.install_kokoro(request.get('language', self.settings['language']))
+            elif command == 'install-kokoro': self.install_kokoro(request.get('language', speech_language(self.settings)))
             elif command == 'check-kokoro-updates': self.check_kokoro_updates(request.get('language', self.settings['language']))
             elif command == 'update-kokoro': self.check_kokoro_updates(request.get('language', self.settings['language']), update=True)
             elif command == 'cancel-kokoro-install': self.cancel_kokoro_install()
+            elif command == 'test-translation': self.test_translation()
+            elif command == 'translator-models': self.refresh_translator_models()
+            elif command == 'install-translator': self.install_translator()
+            elif command == 'cancel-translator-install': self.cancel_translator_install()
+            elif command == 'configure-translator-token': self.configure_translator_token(request.get('token', ''), request.get('remember_token', False))
             elif command == 'settings': self.show_settings()
             elif command == 'quit': QTimer.singleShot(100, self.app.quit)
             elif command != 'status': raise ValueError('Unknown command')
@@ -1628,7 +1767,11 @@ class Reader(QObject):
                             probed_settings=self.probed_settings, probed_voices=self.probed_voices,
                             piper_installations={lang: installed_settings(DATA, lang) for lang in PIPER if engine_ready(installed_settings(DATA, lang), 'piper')},
                             audio_outputs=outputs(), verified_provider=getattr(self, 'verified_provider', None),
-                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), notices=recent_notices(), checks=(checks := self.readiness_checks()), can_start=all(c['ok'] for c in checks), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
+                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(),
+                            translation_status=self.translator_install_status(), translator_models=self.translator_models,
+                            translator_models_loading=self.translator_models_loading, installing_translator=self.installing_translator,
+                            translation_testing=self.translation_worker.pending is not None and not self.enabled,
+                            nllb_ready=nllb_ready(), translator_key_ready=bool(self.translator_token), translator_endpoints=TRANSLATOR_ENDPOINTS, notices=recent_notices(), checks=(checks := self.readiness_checks()), can_start=all(c['ok'] for c in checks), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(speech_language(self.settings), self.settings).items()], window=self.target_title,
                             queued=len(self.queue), processes=[t.proc.processId() for t in self.speech_tasks])
         except (ValueError, KeyError, TypeError) as error:
             response = {'error': str(error)}

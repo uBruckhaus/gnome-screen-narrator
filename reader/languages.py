@@ -236,6 +236,18 @@ PIPER = {
 # Languages the Qwen3-TTS 12 Hz models speak.
 QWEN_LANGUAGES = ('zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it')
 
+
+# code: FLORES-200 language token of the offline NLLB-200 translator
+NLLB = dict(ar='arb_Arab', bg='bul_Cyrl', bn='ben_Beng', ca='cat_Latn', cs='ces_Latn', cy='cym_Latn', da='dan_Latn', de='deu_Latn',
+            el='ell_Grek', en='eng_Latn', es='spa_Latn', et='est_Latn', eu='eus_Latn', fa='pes_Arab', fi='fin_Latn', fr='fra_Latn',
+            he='heb_Hebr', hi='hin_Deva', hu='hun_Latn', hy='hye_Armn', id='ind_Latn', it='ita_Latn', ja='jpn_Jpan',
+            ka='kat_Geor', kk='kaz_Cyrl', ko='kor_Hang', ku='kmr_Latn', lb='ltz_Latn', lv='lvs_Latn', ml='mal_Mlym', mr='mar_Deva',
+            ne='npi_Deva', nl='nld_Latn', no='nob_Latn', pl='pol_Latn', pt='por_Latn', ro='ron_Latn', ru='rus_Cyrl', sk='slk_Latn',
+            sl='slv_Latn', sq='als_Latn', sr='srp_Cyrl', sv='swe_Latn', sw='swh_Latn', te='tel_Telu', tr='tur_Latn', uk='ukr_Cyrl',
+            ur='urd_Arab', vi='vie_Latn', zh='zho_Hans')
+NLLB['is'] = 'isl_Latn'  # 'is' is a Python keyword, so it cannot be a dict() argument.
+
+
 def default_language():
     """The desktop locale's language when supported, otherwise English."""
     for key in ('LC_ALL', 'LC_MESSAGES', 'LANG'):
