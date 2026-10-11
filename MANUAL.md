@@ -1,6 +1,6 @@
 # Screen Narrator user manual
 
-Click the headphones icon in the Omarchy bar to open reading controls; right-click it to start or stop reading directly. In the popup, **▶ Start**, **⏸ Pause** and **■ Stop** sit right under the summary. Start begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
+Click the headphones icon in the Omarchy bar to open reading controls; right-click it to start or stop reading directly. In the popup, **▶ Start**, **❚❚ Pause** and **■ Stop** sit right under the summary. Start begins local OCR narration of the active window; Stop ends it. Pause/Resume controls playback and Read again restarts the current page. Closing the popup leaves narration running.
 
 Choose voice, text language (50 languages) and reading speed (60–200%). Reading controls save immediately; provider setup applies after a successful test and Use provider. Enable following window/page changes, Kindle cropping, page turning and passage highlighting as needed. Select area closes the popup before region selection; Reset area clears it.
 
