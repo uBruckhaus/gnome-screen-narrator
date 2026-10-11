@@ -77,6 +77,13 @@ class ProviderTests(unittest.TestCase):
             self.assertEqual(set(available_voices('es')),{'kokoro-ef_dora','kokoro-em_alex'})
             self.assertEqual(set(available_voices('nl')),set())
 
+    def test_qwen_and_custom_piper_only_for_their_languages(self):
+        with patch('reader.voice_is_available', return_value=True):
+            dutch = set(available_voices('nl', {'piper_model': '/v/de_DE-thorsten-high.onnx'}))
+            german = set(available_voices('de', {'piper_model': '/v/de_DE-thorsten-high.onnx'}))
+        self.assertFalse({'qwen-kerstin', 'qwen-custom', 'piper-custom'} & dutch)
+        self.assertTrue({'qwen-kerstin', 'piper-custom'} <= german)
+
 
 if __name__ == '__main__':
     unittest.main()

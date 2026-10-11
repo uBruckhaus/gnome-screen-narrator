@@ -233,6 +233,9 @@ PIPER = {
 }
 
 
+# Languages the Qwen3-TTS 12 Hz models speak.
+QWEN_LANGUAGES = ('zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it')
+
 def default_language():
     """The desktop locale's language when supported, otherwise English."""
     for key in ('LC_ALL', 'LC_MESSAGES', 'LANG'):

@@ -96,8 +96,14 @@ def voice_is_available(key, settings=None):
 def available_voices(language=None, settings=None):
     def matches(value):
         _, engine, reference = value
-        if not language or engine == 'qwen' or reference == 'custom':
+        if not language:
             return True
+        if engine == 'qwen':
+            return language in languages.QWEN_LANGUAGES
+        if reference == 'custom':
+            # A custom Piper voice speaks the language in its file name (nl_NL-…); unknown names stay offered.
+            match = re.match(r'([a-z]{2})_', Path((settings or {}).get('piper_model') or '').name)
+            return not match or match.group(1) == language
         if engine == 'kokoro':
             return kokoro_voice_language(reference) == language
         return reference.startswith(language + '_')
@@ -566,7 +572,8 @@ class Reader(QObject):
             return
         choices = available_voices(self.voice_language(), self.settings)
         if choices and self.settings['voice'] not in choices:
-            self.settings['voice'] = next((k for k, v in choices.items() if v[1] == 'kokoro'), next(iter(choices)))
+            rank = {'kokoro': 0, 'piper': 1, 'qwen': 2}
+            self.settings['voice'] = min(choices, key=lambda k: rank.get(choices[k][1], 3))
             self.save()
 
     def extra_checks(self):
