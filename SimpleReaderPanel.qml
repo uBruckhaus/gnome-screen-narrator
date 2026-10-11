@@ -28,7 +28,7 @@ Ui.Panel {
   property bool showProviders: false
   property bool showReadingOptions: false
   // Desktop notifications appear behind this popup, so warnings and errors are repeated here.
-  property int dismissedNotice: 0
+  property double dismissedNotice: 0  // ids are millisecond timestamps (beyond int range)
   readonly property var latestNotice: {
     var list = state.notices || []
     return list.length && list[list.length - 1].id > dismissedNotice ? list[list.length - 1] : null
