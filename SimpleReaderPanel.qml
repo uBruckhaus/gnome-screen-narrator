@@ -482,7 +482,8 @@ Ui.Panel {
                   Text { text: "Reading & Kindle"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }
                   Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Follow active window and page changes"; checked: root.config.follow !== false; onClicked: root.set("follow", !checked) }
                   Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Skip Kindle toolbar and margins"; checked: root.config.kindle_crop !== false; onClicked: root.set("kindle_crop", !checked) }
-                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Turn Kindle pages after reading"; checked: root.config.auto_page_turn !== false; onClicked: root.set("auto_page_turn", !checked) }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Read only the page in PDF viewers"; checked: root.config.pdf_page_area !== false; onClicked: root.set("pdf_page_area", !checked) }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Turn Kindle and PDF pages after reading"; checked: root.config.auto_page_turn !== false; onClicked: root.set("auto_page_turn", !checked) }
                   Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Highlight the passage being read"; checked: root.config.highlight !== false; onClicked: root.set("highlight", !checked) }
                   Ui.PanelSeparator {}
                   Text { text: "Reading Area"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }

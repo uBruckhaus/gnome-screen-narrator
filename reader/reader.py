@@ -24,6 +24,7 @@ from install_piper import installed_settings
 import languages
 from languages import KOKORO, PIPER, kokoro_voice_language
 from translator import nllb_ready
+from pdf_page import find_page_in_image, viewer_keys
 
 from PySide6.QtCore import QObject, QProcess, QTimer, Qt, QLockFile
 from PySide6.QtGui import QActionGroup, QColor, QIcon, QPainter, QPen, QPixmap
@@ -57,7 +58,7 @@ for _code, (_family, _phonemes, _voices) in KOKORO.items():
 # Piper voices installed by guided setup (one per language) are ordinary voices too.
 for _code, (_prefix, _file, *_rest) in PIPER.items():
     VOICES['piper-' + _code] = (_file.split('-')[1].replace('_', ' ').title() + ' · Piper', 'piper', 'managed:' + _code)
-DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='',
+DEFAULTS = dict(audio_output='auto', voice='kokoro-martin', speed=1.0, language=languages.default_language(), follow=True, kindle_crop=True, pdf_page_area=True, auto_page_turn=True, kindle_area=None, highlight=True, provider='Local', online_endpoint='https://api.openai.com/v1', online_model='', online_voice='alloy', remember_token=False, piper_runner=str(DATA / 'venv/bin/piper'), piper_model='', piper_config='', qwen_runner=str(HOME / '.local/bin/llama-tts'), qwen_model=str(QWEN_MODEL_DIR / 'Qwen3-TTS-12Hz-1.7B-Base-Q8_0.gguf'), qwen_projection=str(QWEN_MODEL_DIR / 'mmproj-Qwen3-TTS-12Hz-1.7B-Base-bf16.gguf'), qwen_speaker='',
                 translate_to='', translator='llm', translator_endpoint='http://127.0.0.1:8080/v1',
                 translator_model='', remember_translator_token=False)
 TRANSLATOR_ENDPOINTS = {'llama.cpp': 'http://127.0.0.1:8080/v1', 'LM Studio': 'http://127.0.0.1:1234/v1',
@@ -953,6 +954,10 @@ class Reader(QObject):
             if self.enabled:
                 self.read_again()
 
+    def pdf_keys(self):
+        """(next-page key, scroll key) when the reading window is a known PDF viewer."""
+        return viewer_keys(self.target_class, self.target_title)
+
     def is_kindle_target(self):
         title = (self.target_title or '').lower()
         cls = (self.target_class or '').lower()
@@ -1090,7 +1095,27 @@ class Reader(QObject):
             self.scanning = False
             self.fail('Screen capture failed: ' + err)
             return
-        Task(self, ['magick', RUNTIME / 'window.png', '-colorspace', 'Gray', '-normalize', '-strip', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
+        crop = []
+        self.pdf_cut_off = False
+        if self.pdf_keys() and self.settings.get('pdf_page_area', True) and not self.custom_area:
+            # Read only the page: no toolbar, thumbnails or neighbouring pages.
+            try:
+                page = find_page_in_image(RUNTIME / 'window.png')
+            except Exception as error:
+                print('PDF page detection failed: ' + str(error), file=sys.stderr, flush=True)
+                page = None
+            if page:
+                px, py, pw, ph, self.pdf_cut_off = page
+                ax, ay, aw, ah = self.capture_area
+                scale = max(1e-6, self.image_width(RUNTIME / 'window.png') / max(1, aw))
+                crop = ['-crop', f'{pw}x{ph}+{px}+{py}', '+repage']
+                self.capture_area = (round(ax + px / scale), round(ay + py / scale), round(pw / scale), round(ph / scale))
+        Task(self, ['magick', RUNTIME / 'window.png', *crop, '-colorspace', 'Gray', '-normalize', '-strip', RUNTIME / 'ocr.png'], self.prepared, timeout=5)
+
+    @staticmethod
+    def image_width(path):
+        from PySide6.QtGui import QImageReader
+        return QImageReader(str(path)).size().width()
 
     def prepared(self, code, out, err):
         if code:
@@ -1405,7 +1430,7 @@ class Reader(QObject):
             self.set_enabled(False)
             self.update('Voice test complete')
             return
-        if self.settings.get('auto_page_turn', True) and self.is_kindle_target():
+        if self.settings.get('auto_page_turn', True) and (self.is_kindle_target() or self.pdf_keys()):
             self.update('Turning to next page…')
             epoch = self.epoch
             QTimer.singleShot(100, lambda: self.do_page_turn() if self.epoch == epoch else None)
@@ -1429,14 +1454,24 @@ class Reader(QObject):
                 self.update('Waiting for the reading window')
                 self.scan()
                 return
-            Task(self, ['wtype', '-k', 'Right'], self.page_turn_sent, timeout=3)
+            keys = self.pdf_keys()
+            if keys:
+                # A page that continues below the window is scrolled first; otherwise next page.
+                key = keys[1] if getattr(self, 'pdf_cut_off', False) else keys[0]
+                if not re.fullmatch(r'0x[0-9a-fA-F]{1,16}', str(address)):
+                    self.update('Waiting for the reading window')
+                    return
+                Task(self, ['hyprctl', 'dispatch', f'hl.dsp.send_shortcut({{ mods = "", key = "{key}", window = "address:{address}" }})'],
+                     self.page_turn_sent, timeout=3)
+            else:
+                Task(self, ['wtype', '-k', 'Right'], self.page_turn_sent, timeout=3)
         Task(self, ['hyprctl', 'activewindow', '-j'], focused, timeout=3)
 
     def page_turn_sent(self, code, out, err):
         if not self.enabled or self.paused:
             return
         if code:
-            self.fail('Could not turn the Kindle page: ' + err)
+            self.fail('Could not turn the page: ' + err)
             return
         # Scan early; the second matching OCR capture still confirms stability.
         epoch = self.epoch
@@ -1479,8 +1514,11 @@ class Reader(QObject):
         form.addRow(follow)
         crop = QCheckBox('Skip Kindle toolbar, margins and progress bar')
         crop.setChecked(self.settings['kindle_crop'])
+        pdf_area = QCheckBox('Read only the page in PDF viewers')
+        pdf_area.setChecked(self.settings.get('pdf_page_area', True))
         form.addRow(crop)
-        auto_page = QCheckBox('Turn Kindle pages after reading')
+        form.addRow(pdf_area)
+        auto_page = QCheckBox('Turn Kindle and PDF pages after reading')
         auto_page.setChecked(self.settings.get('auto_page_turn', True))
         form.addRow(auto_page)
         highlight = QCheckBox('Highlight the passage being read')
@@ -1530,6 +1568,7 @@ class Reader(QObject):
                 language=language.currentData(),
                 follow=follow.isChecked(),
                 kindle_crop=crop.isChecked(),
+                pdf_page_area=pdf_area.isChecked(),
                 auto_page_turn=auto_page.isChecked(),
                 highlight=highlight.isChecked()
             )
@@ -1548,7 +1587,7 @@ class Reader(QObject):
     def validated_settings(self, values):
         if not isinstance(values, dict):
             raise ValueError('Settings must be an object')
-        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output',
+        allowed = {'voice', 'language', 'speed', 'follow', 'kindle_crop', 'pdf_page_area', 'auto_page_turn', 'highlight', 'provider', 'online_endpoint', 'online_model', 'online_voice', 'audio_output',
                    'translate_to', 'translator', 'translator_endpoint', 'translator_model'} | PATH_KEYS
         if set(values) - allowed:
             raise ValueError('Unknown setting')
@@ -1577,7 +1616,7 @@ class Reader(QObject):
             if key == 'speed':
                 if isinstance(value, bool) or not isinstance(value, (int, float)) or not .6 <= value <= 2.:
                     raise ValueError('Speed must be between 0.6 and 2')
-            if key in {'follow', 'kindle_crop', 'auto_page_turn', 'highlight'} and not isinstance(value, bool):
+            if key in {'follow', 'kindle_crop', 'pdf_page_area', 'auto_page_turn', 'highlight'} and not isinstance(value, bool):
                 raise ValueError('Expected a boolean setting')
             if key in PATH_KEYS:
                 value = normalize_path(value)
