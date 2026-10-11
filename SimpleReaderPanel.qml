@@ -146,6 +146,14 @@ Ui.Panel {
   readonly property bool enabledReader: state.enabled === true
   onShowManualViewChanged: panelScroll.contentY = 0
   onShowProvidersChanged: panelScroll.contentY = 0
+  // Backspace on a subpage returns to the reading controls (text fields keep it).
+  function goBack() {
+    if (showManualView) showManualView = false
+    else if (showProviders) closeProviders()
+    else return false
+    content.forceActiveFocus()
+    return true
+  }
   function closeProviders() {
     showProviders = false
     engineChoice = ""
@@ -216,6 +224,9 @@ Ui.Panel {
         focus: root.opened
         spacing: Style.space(12)
         Keys.onEscapePressed: root.close()
+        Keys.onPressed: function(event) {
+          if (event.key === Qt.Key_Backspace && root.goBack()) event.accepted = true
+        }
         Item {
           width: parent.width
           height: Style.space(28)
@@ -304,7 +315,7 @@ Ui.Panel {
             }
             }
           }
-          Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls"; bordered: true; onClicked: root.closeProviders() }
+          Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.closeProviders() }
           Text { width: parent.width; visible: root.showProviders && root.setupBusy; text: root.state.setup_message || "Setting up…"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
           Ui.Button { focusable: true; text: "Cancel setup"; visible: root.showProviders && root.setupBusy; enabled: root.state.setup_phase !== "packages"; bordered: true; onClicked: root.request({command: "cancel-setup"}) }
           Column {
@@ -395,17 +406,17 @@ Ui.Panel {
               }
             }
           }
-          Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls"; bordered: true; onClicked: root.closeProviders() }
+          Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.closeProviders() }
           Text { width: parent.width; text: "Reading controls save immediately; provider setup applies with Use provider. Closing this popup leaves narration running. Focus the window you want to read."; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.65; font.family: Style.font.family; font.pixelSize: Style.font.caption }
         }
         Column {
           width: parent.width
           spacing: Style.space(10)
           visible: root.showManualView
-          Ui.Button { focusable: true; width: parent.width; text: "← Back to Reading Controls"; bordered: true;  onClicked: root.showManualView = false }
+          Ui.Button { focusable: true; width: parent.width; text: "← Back to Reading Controls · ⌫"; bordered: true;  onClicked: root.showManualView = false }
           Repeater {
             model: [
-              {title: "1. Reading Controls", body: "• ▶ Start, ❚❚ Pause and ■ Stop sit right under the summary. Right-click the bar icon to start or stop without opening the popup.\n• First use: open Add / manage speech providers, choose Kokoro and a voice language, then Install Kokoro voice & reader. Test provider voice, then Use provider. Then Test voice or focus your text window and Start reading. Existing reader shortcuts can also be used; this plugin does not replace desktop shortcuts.\n• Pause/Resume controls playback; Read again restarts the current page.\n• Stop ends narration and reader-owned capture. Closing this popup leaves narration running."},
+              {title: "1. Reading Controls", body: "• ▶ Start, ❚❚ Pause and ■ Stop sit right under the summary. Right-click the bar icon to start or stop without opening the popup.\n• First use: open Add / manage speech providers, choose Kokoro and a voice language, then Install Kokoro voice & reader. Test provider voice, then Use provider. Then Test voice or focus your text window and Start reading. Existing reader shortcuts can also be used; this plugin does not replace desktop shortcuts.\n• Pause/Resume controls playback; Read again restarts the current page.\n• Stop ends narration and reader-owned capture. Closing this popup leaves narration running.\n• On a subpage (provider setup, translation, this manual) Backspace returns to the reading controls; Esc closes the popup."},
               {title: "2. Voice, Language & Speed", body: "• Choose the text language (50 languages) and a local voice for it. Kokoro speaks English, German, Spanish, French, Italian, Portuguese, Hindi and Chinese; Piper covers all 50.\n• Kokoro is the default local voice. Add / manage speech providers offers Kokoro and Piper installation, a Qwen file checklist, or a compatible speech server. Optional local voices appear only with their runtimes and models installed.\n• Online supports endpoint, model, voice and token configuration. Test provider voice, then Use provider. The active provider stays selected during setup.\n• Audio output chooses speakers or headphones for every provider. System default follows your desktop setting.\n• Set speed from 60% to 200%. Reading controls save immediately."},
               {title: "3. Reading & Kindle", body: "• Follow active window and page changes enables continuous reading.\n• Kindle cropping skips the toolbar and margins.\n• Automatic page turning advances Kindle after narration finishes.\n• Manual page changes stop old speech and resume when the new text settles."},
               {title: "4. Reading Area & Highlighting", body: "• Select area closes the popup so you can choose a region.\n• Reset area returns to the full active window.\n• Highlighting follows the current speech chunk and hides when another window has focus."},
@@ -429,7 +440,7 @@ Ui.Panel {
               }
             }
           }
-          Ui.Button { focusable: true; width: parent.width; text: "← Back to Reading Controls"; bordered: true;  onClicked: root.showManualView = false }
+          Ui.Button { focusable: true; width: parent.width; text: "← Back to Reading Controls · ⌫"; bordered: true;  onClicked: root.showManualView = false }
         }
       }
     }
