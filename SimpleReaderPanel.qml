@@ -169,6 +169,35 @@ Ui.Panel {
   onNextStepChanged: showMoreFixes = false
   readonly property bool installBusy: setupBusy || state.installing_kokoro === true || state.installing_translator === true
   readonly property string installMessage: setupBusy ? (state.setup_message || "Setting up…") : (state.provider_status || state.translation_status || "Installing…")
+  // "Set up automatically": install what the chosen language and provider still need.
+  readonly property bool translating: !!config.translate_to
+  function failedCheck(prefix) {
+    var list = state.checks || []
+    for (var i = 0; i < list.length; i++) if (!list[i].ok && list[i].label.indexOf(prefix) === 0) return list[i]
+    return null
+  }
+  readonly property bool canInstallVoices: activeEngine === "Kokoro" || activeEngine === "Piper"
+  function voiceNeed() {
+    var check = failedCheck("Voice")
+    return check && canInstallVoices ? check : null
+  }
+  function setupPlan(voiceLanguage, ocrLanguage, needOcr, needVoice) {
+    var args = {language: voiceLanguage, ocr_language: ocrLanguage}
+    if (needVoice && activeEngine === "Piper" && languageInfo(voiceLanguage).piper) args.engine = "piper"
+    if (!needVoice) args.backend_only = true
+    return args
+  }
+  readonly property string readingNeeds: {
+    var parts = []
+    var ocr = failedCheck("Text recognition"), voice = translating ? null : voiceNeed()
+    if (ocr) parts.push(languageInfo(config.language).label.split(" · ")[0] + " text recognition")
+    if (voice) parts.push(voice.fixes[0].label.replace(/^Install /, "a ").replace(/ voice/, " " + activeEngine + " voice"))
+    return parts.join(" and ")
+  }
+  function setupReading() {
+    var needVoice = !translating && voiceNeed() !== null
+    request(Object.assign({command: "setup"}, setupPlan(config.language, config.language, failedCheck("Text recognition") !== null, needVoice)))
+  }
   function applyFix(fix) {
     if (fix.command) { request(Object.assign({command: fix.command}, fix.args || {})); return }
     if (fix.panel === "providers") manageProvider(activeEngine)
@@ -362,6 +391,8 @@ Ui.Panel {
                 }
                 Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; width: parent.width; id: textLanguagePicker; label: "Text language"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; options: root.languageOptions; value: root.config.language || "en"; onChanged: { root.set("language", value); textLanguagePicker.value = Qt.binding(function() { return root.config.language || "en" }) } }
                 Ui.NumberField { label: "Reading speed (%)"; enabled: root.backendReady && !root.setupBusy; from: 60; to: 200; stepSize: 5; value: Math.round((root.config.speed || 1) * 100); onModified: root.set("speed", value / 100) }
+                Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what reading in this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.readingNeeds !== ""; onClicked: root.setupReading() }
+                Text { width: parent.width; text: root.readingNeeds !== "" ? "Installs " + root.readingNeeds + "." : "✓ Everything for reading " + root.languageInfo(root.config.language).label.split(" · ")[0] + " is installed."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
                 Flow {
                   width: parent.width; spacing: Style.spacing.md
                   Ui.Button { focusable: true; text: "Read again"; bordered: true; enabled: root.enabledReader && !root.state.testing_voice; onClicked: root.request({command: "read"}) }

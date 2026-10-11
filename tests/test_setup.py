@@ -26,6 +26,18 @@ class SetupTests(unittest.TestCase):
             self.assertEqual(piper.call_args.args[1], 'nl')
             self.assertFalse(any('install_kokoro.py' in str(c.args[0]) for c in run.call_args_list))
 
+    def test_ocr_language_can_differ_from_voice_language(self):
+        with tempfile.TemporaryDirectory() as folder:
+            base = Path(folder)
+            (base / 'source/reader').mkdir(parents=True)
+            with patch.object(setup, 'DATA', base / 'data'), patch.object(setup, 'UNIT', base / 'ocrvox.service'), patch.object(setup, 'ROOT', base / 'source'), patch.object(setup, 'missing_packages', return_value=[]) as missing, patch.object(setup, 'runtime_ready', return_value=True), patch.object(setup, 'report'), patch.object(setup, 'install_launcher'), patch.object(setup, 'run'):
+                setup.install('en', backend_only=True, ocr_language='de')
+            missing.assert_called_once_with('de')
+        with self.assertRaises(ValueError):
+            setup.install('en', ocr_language='xx')
+        with self.assertRaises(ValueError):
+            bridge.request({'command': 'setup', 'language': 'en', 'ocr_language': '../de'})
+
     def test_unknown_language_is_rejected(self):
         for value in ('xx', '../de', 'de\n', None):
             with self.assertRaises(ValueError):

@@ -133,8 +133,9 @@ def install_launcher(backup):
     desktop.write_text(template)
 
 
-def install(language, backend_only=False, engine=None):
-    if not languages.valid(language):
+def install(language, backend_only=False, engine=None, ocr_language=None):
+    """Set up the reader: OCR data for `ocr_language` (default: `language`) and a voice for `language`."""
+    if not languages.valid(language) or not languages.valid(ocr_language or language):
         raise ValueError('Choose a supported language')
     if engine is None and language not in languages.KOKORO:
         engine = 'piper'  # Kokoro has no voice for this language; Piper does.
@@ -153,7 +154,7 @@ def install(language, backend_only=False, engine=None):
         existing = UNIT.read_text() if UNIT.exists() else ''
         if existing and not managed_service(existing):
             raise RuntimeError('An unmanaged ocrvox.service exists. Its configuration was preserved; choose a different service before setup.')
-        packages = missing_packages(language)
+        packages = missing_packages(ocr_language or language)
         if packages:
             report('Authorize installation of: ' + ', '.join(packages), 'packages')
             run(['pkexec', 'pacman', '-S', '--needed', '--noconfirm', *packages])
@@ -241,9 +242,10 @@ if __name__ == '__main__':
     parser.add_argument('--language', choices=sorted(languages.LANGUAGES), default='de')
     parser.add_argument('--backend-only', action='store_true')
     parser.add_argument('--engine', choices=('piper',))
+    parser.add_argument('--ocr-language', choices=sorted(languages.LANGUAGES))
     options = parser.parse_args()
     try:
-        install(options.language, options.backend_only or options.engine is not None, options.engine)
+        install(options.language, options.backend_only or options.engine is not None, options.engine, options.ocr_language)
     except Exception as error:
         print(str(error), file=sys.stderr)
         sys.exit(1)

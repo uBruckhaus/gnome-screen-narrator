@@ -77,6 +77,9 @@ def request(payload):
             raise ValueError('Unsupported installer')
         if engine == 'piper' and language not in languages.PIPER:
             raise ValueError('Piper has no voice for this language; use Kokoro')
+        ocr_language = payload.get('ocr_language')
+        if ocr_language is not None and not languages.valid(ocr_language):
+            raise ValueError('Choose a supported language')
         if not setup.get('busy'):
             DATA.mkdir(parents=True, exist_ok=True)
             with (DATA / 'setup.log').open('a') as log:
@@ -85,6 +88,8 @@ def request(payload):
                     args.append('--backend-only')
                 if engine:
                     args.extend(['--engine', engine])
+                if ocr_language:
+                    args.extend(['--ocr-language', ocr_language])
                 subprocess.Popen(args,
                                  stdin=subprocess.DEVNULL, stdout=log, stderr=log, start_new_session=True)
             return dict(setup_busy=True, setup_message='Starting setup…', enabled=False, settings={})
