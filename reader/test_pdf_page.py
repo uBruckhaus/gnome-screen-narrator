@@ -53,6 +53,26 @@ class PageDetectionTests(unittest.TestCase):
         self.assertIsNone(viewer_keys(None, None))
 
 
+class PageNumberTests(unittest.TestCase):
+    def test_page_numbers_at_top_and_bottom_are_not_read(self):
+        from reader import clean_text
+        cases = {
+            'Chapter three. Nobody came.\n\n\nPage 3': 'Chapter three. Nobody came.',
+            '12\nThe train left.\n- 13 -': 'The train left.',
+            'Seite 3 von 10\nDer Zug fuhr ab.': 'Der Zug fuhr ab.',
+            'The end.\n\n3 / 10': 'The end.',
+            'Preface text.\nxiv': 'Preface text.',
+        }
+        for raw, spoken in cases.items():
+            self.assertEqual(clean_text(raw), spoken)
+
+    def test_text_is_kept(self):
+        from reader import clean_text
+        self.assertEqual(clean_text('I\nam here.'), 'I am here.')
+        self.assertEqual(clean_text('Page 3 shows the map.'), 'Page 3 shows the map.')
+        self.assertEqual(clean_text('One\n12 apples were left.'), 'One 12 apples were left.')
+
+
 class PageTurnTests(unittest.TestCase):
     def turn(self, address, cut_off):
         from reader import Reader

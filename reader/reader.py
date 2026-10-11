@@ -222,9 +222,28 @@ def desktop_notify(summary, body='', icon=None, timeout=None, level='info'):
     subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+# A page number line: "12", "- 12 -", "Page 3", "Seite 3 von 10", "3 / 10", "xiv".
+PAGE_NUMBER = re.compile(
+    r'[-–—\s]*(?:(?:page|seite|página|pagina|pág\.?|pag\.?|p\.|s\.|strona|side|sida|sivu|oldal|stránka|'
+    r'страница|стр\.?|sayfa|halaman|trang|ページ|页|頁|페이지)\s*)?'
+    r'(?:\d{1,4}|(?-i:[ivxlc]{1,6}))(?:\s*(?:/|of|von|de|di|z|av|af|из)\s*\d{1,4})?\s*(?:頁|页)?[-–—\s]*',
+    re.IGNORECASE)
+
+
+def strip_page_numbers(text):
+    """Drop page number lines at the top and bottom of a page; they are not read aloud."""
+    lines = text.split('\n')
+    while lines and (not lines[0].strip() or PAGE_NUMBER.fullmatch(lines[0].strip())):
+        lines.pop(0)
+    while lines and (not lines[-1].strip() or PAGE_NUMBER.fullmatch(lines[-1].strip())):
+        lines.pop()
+    return '\n'.join(lines)
+
+
 def clean_text(text):
     # Keep words and punctuation; fix hyphenated line wrapping.
     text = text.replace('\x0c', '').replace('\u00ad', '')
+    text = strip_page_numbers(text)
     # Rejoin hyphenated line wraps (e.g. 'Raum-\nschiffs' -> 'Raumschiffs')
     text = re.sub(r'(\b\w+)-\s*\n\s*(\w+\b)', r'\1\2', text)
     paragraphs = re.split(r'\n\s*\n', text.strip())
