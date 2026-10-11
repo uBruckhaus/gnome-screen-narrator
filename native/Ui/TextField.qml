@@ -43,7 +43,29 @@ FocusScope {
   implicitHeight: Math.ceil(metrics.height) + verticalPadding * 2 + Border.top(_borderSpec) + Border.bottom(_borderSpec)
   activeFocusOnTab: true
 
-  onTextChanged: if (cursorPosition > text.length) cursorPosition = text.length
+  // Edits must not cut a caller's binding such as `text: root.config.value` (QML assignments
+  // from JavaScript would). While editing, a Binding element drives `text` from `_draft`;
+  // when focus leaves, the caller's binding comes back (RestoreBinding). A field without a
+  // binding keeps the typed value (e.g. a token waiting for Apply).
+  property string _draft: ""
+  property bool _editing: false
+  Binding {
+    target: root
+    property: "text"
+    value: root._draft
+    when: root._editing
+    restoreMode: Binding.RestoreBinding
+  }
+  function _set(value) {
+    if (!_editing) { _draft = text; _editing = true }
+    _draft = value
+  }
+
+  onTextChanged: {
+    // Someone set `text` from outside while editing (e.g. clearing a filter): follow it.
+    if (_editing && text !== _draft) _draft = text
+    if (cursorPosition > text.length) cursorPosition = text.length
+  }
 
   // Insert text at the cursor: control characters are dropped and the length is capped.
   function insert(value) {
@@ -52,11 +74,15 @@ FocusScope {
     clean = clean.slice(0, room)
     if (!clean) return
     var at = Math.min(cursorPosition, text.length)
-    text = text.slice(0, at) + clean + text.slice(at)
+    _set(text.slice(0, at) + clean + text.slice(at))
     cursorPosition = at + clean.length
   }
 
-  function clear() { text = ""; cursorPosition = 0 }
+  function clear() {
+    if (_editing) _draft = ""
+    else text = ""
+    cursorPosition = 0
+  }
 
   BorderSurface {
     anchors.fill: parent
@@ -128,7 +154,11 @@ FocusScope {
     id: editor
     anchors.fill: parent
     focus: true
-    onActiveFocusChanged: if (!activeFocus) root.editingFinished()
+    onActiveFocusChanged: {
+      if (activeFocus) return
+      root.editingFinished()
+      root._editing = false
+    }
 
     Keys.onPressed: function(event) {
       var ctrl = (event.modifiers & Qt.ControlModifier) !== 0
@@ -138,12 +168,12 @@ FocusScope {
         event.accepted = true
       } else if (event.key === Qt.Key_Backspace) {
         if (at > 0) {
-          root.text = root.text.slice(0, at - 1) + root.text.slice(at)
+          root._set(root.text.slice(0, at - 1) + root.text.slice(at))
           root.cursorPosition = at - 1
         }
         event.accepted = true
       } else if (event.key === Qt.Key_Delete) {
-        if (at < root.text.length) root.text = root.text.slice(0, at) + root.text.slice(at + 1)
+        if (at < root.text.length) root._set(root.text.slice(0, at) + root.text.slice(at + 1))
         event.accepted = true
       } else if (event.key === Qt.Key_Left) {
         root.cursorPosition = Math.max(0, at - 1); event.accepted = true
