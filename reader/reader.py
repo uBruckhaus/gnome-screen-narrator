@@ -1484,11 +1484,11 @@ class Reader(QObject):
     def page_turn_sent(self, code, out, err):
         if not self.enabled or self.paused:
             return
-        if self.pdf_keys():
-            self.pdf_turned_at = time.monotonic()
         if code:
             self.fail('Could not turn the page: ' + err)
             return
+        if self.pdf_keys():
+            self.pdf_turned_at = time.monotonic()
         # Scan early; the second matching OCR capture still confirms stability.
         epoch = self.epoch
         QTimer.singleShot(250, lambda: self.scan() if self.epoch == epoch else None)
