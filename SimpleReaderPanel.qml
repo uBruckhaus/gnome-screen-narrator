@@ -27,6 +27,8 @@ Ui.Panel {
   property string engineChoice: ""
   property bool showProviders: false
   property bool showReadingOptions: false
+  property bool showVoiceGroup: false
+  property bool showReadingGroup: false
   // Desktop notifications appear behind this popup, so warnings and errors are repeated here.
   property double dismissedNotice: 0  // ids are millisecond timestamps (beyond int range)
   readonly property var latestNotice: {
@@ -384,36 +386,46 @@ Ui.Panel {
                 id: readingGroup
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(10)
                 spacing: Style.spacing.md
-                Row {
-                  spacing: Style.space(8)
-                  Text { text: "󰗚"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
-                  Text { text: "Reading"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                Item {
+                  width: parent.width; height: Math.max(readingGroupTitle.implicitHeight, Style.space(22))
+                  Row {
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(8)
+                    Text { text: "󰗚"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
+                    Text { id: readingGroupTitle; text: "Reading"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "· " + root.languageInfo(root.config.language).label.split(" · ")[0] + " · " + Math.round((root.config.speed || 1) * 100) + " %"; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight; width: parent.width - Style.space(150); font.family: Style.font.family; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
+                  }
+                  Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.showReadingGroup ? "▾" : "▸"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showReadingGroup = !root.showReadingGroup }
                 }
-                Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; width: parent.width; id: textLanguagePicker; label: "Text language"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; options: root.languageOptions; value: root.config.language || "en"; onChanged: { root.set("language", value); textLanguagePicker.value = Qt.binding(function() { return root.config.language || "en" }) } }
-                Ui.NumberField { label: "Reading speed (%)"; enabled: root.backendReady && !root.setupBusy; from: 60; to: 200; stepSize: 5; value: Math.round((root.config.speed || 1) * 100); onModified: root.set("speed", value / 100) }
-                Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what reading in this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.readingNeeds !== ""; onClicked: root.setupReading() }
-                Text { width: parent.width; text: root.readingNeeds !== "" ? "Installs " + root.readingNeeds + "." : "✓ Everything for reading " + root.languageInfo(root.config.language).label.split(" · ")[0] + " is installed."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                Flow {
-                  width: parent.width; spacing: Style.spacing.md
-                  Ui.Button { focusable: true; text: "Read again"; bordered: true; enabled: root.enabledReader && !root.state.testing_voice; onClicked: root.request({command: "read"}) }
-                }
-                Ui.Button { focusable: true; width: parent.width; text: root.showReadingOptions ? "▾ Reading options" : "▸ Reading options"; bordered: true; onClicked: root.showReadingOptions = !root.showReadingOptions }
                 Column {
-                  width: parent.width; spacing: Style.spacing.md; visible: root.showReadingOptions
-                Text { text: "Reading & Kindle"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }
-                Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Follow active window and page changes"; checked: root.config.follow !== false; onClicked: root.set("follow", !checked) }
-                Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Skip Kindle toolbar and margins"; checked: root.config.kindle_crop !== false; onClicked: root.set("kindle_crop", !checked) }
-                Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Turn Kindle pages after reading"; checked: root.config.auto_page_turn !== false; onClicked: root.set("auto_page_turn", !checked) }
-                Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Highlight the passage being read"; checked: root.config.highlight !== false; onClicked: root.set("highlight", !checked) }
-                Ui.PanelSeparator {}
-                Text { text: "Reading Area"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }
-                Text { width: parent.width; text: root.state.custom_area ? "Custom reading area selected" : root.config.kindle_area ? "Saved Kindle reading area" : "Full active window"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                Flow {
-                  width: parent.width
-                  spacing: Style.spacing.md
-                  Ui.Button { focusable: true; text: "Select area…"; enabled: root.backendReady && !root.setupBusy; bordered: true;  onClicked: { root.close(); selectionDelay.start() } }
-                  Ui.Button { focusable: true; text: "Reset area"; enabled: root.backendReady && !root.setupBusy; bordered: true;  onClicked: root.request({command: "clear-area"}) }
-                }
+                  width: parent.width; spacing: Style.spacing.md; visible: root.showReadingGroup
+                  Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; width: parent.width; id: textLanguagePicker; label: "Text language"; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; options: root.languageOptions; value: root.config.language || "en"; onChanged: { root.set("language", value); textLanguagePicker.value = Qt.binding(function() { return root.config.language || "en" }) } }
+                  Ui.NumberField { label: "Reading speed (%)"; enabled: root.backendReady && !root.setupBusy; from: 60; to: 200; stepSize: 5; value: Math.round((root.config.speed || 1) * 100); onModified: root.set("speed", value / 100) }
+                  Ui.Button { focusable: true; width: parent.width; bordered: true; selected: enabled; text: "󰁨  Set up automatically"; tooltipText: "Install what reading in this language still needs"; enabled: root.loaded && !root.enabledReader && !root.installBusy && root.readingNeeds !== ""; onClicked: root.setupReading() }
+                  Text { width: parent.width; text: root.readingNeeds !== "" ? "Installs " + root.readingNeeds + "." : "✓ Everything for reading " + root.languageInfo(root.config.language).label.split(" · ")[0] + " is installed."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.8; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Flow {
+                    width: parent.width; spacing: Style.spacing.md
+                    Ui.Button { focusable: true; text: "Read again"; bordered: true; enabled: root.enabledReader && !root.state.testing_voice; onClicked: root.request({command: "read"}) }
+                  }
+                  Ui.Button { focusable: true; width: parent.width; text: root.showReadingOptions ? "▾ Reading options" : "▸ Reading options"; bordered: true; onClicked: root.showReadingOptions = !root.showReadingOptions }
+                  Column {
+                    width: parent.width; spacing: Style.spacing.md; visible: root.showReadingOptions
+                  Text { text: "Reading & Kindle"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Follow active window and page changes"; checked: root.config.follow !== false; onClicked: root.set("follow", !checked) }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Skip Kindle toolbar and margins"; checked: root.config.kindle_crop !== false; onClicked: root.set("kindle_crop", !checked) }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Turn Kindle pages after reading"; checked: root.config.auto_page_turn !== false; onClicked: root.set("auto_page_turn", !checked) }
+                  Ui.Toggle { width: parent.width; enabled: root.backendReady && !root.setupBusy; label: "Highlight the passage being read"; checked: root.config.highlight !== false; onClicked: root.set("highlight", !checked) }
+                  Ui.PanelSeparator {}
+                  Text { text: "Reading Area"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Theme.Style.font.bodySmall; font.bold: true }
+                  Text { width: parent.width; text: root.state.custom_area ? "Custom reading area selected" : root.config.kindle_area ? "Saved Kindle reading area" : "Full active window"; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Flow {
+                    width: parent.width
+                    spacing: Style.spacing.md
+                    Ui.Button { focusable: true; text: "Select area…"; enabled: root.backendReady && !root.setupBusy; bordered: true;  onClicked: { root.close(); selectionDelay.start() } }
+                    Ui.Button { focusable: true; text: "Reset area"; enabled: root.backendReady && !root.setupBusy; bordered: true;  onClicked: root.request({command: "clear-area"}) }
+                  }
+                  }
                 }
               }
             }
@@ -427,25 +439,35 @@ Ui.Panel {
                 id: voiceGroup
                 anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(10)
                 spacing: Style.spacing.md
-                Row {
-                  spacing: Style.space(8)
-                  Text { text: "󰕾"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
-                  Text { text: "Voice"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                Item {
+                  width: parent.width; height: Math.max(voiceGroupTitle.implicitHeight, Style.space(22))
+                  Row {
+                    anchors.left: parent.left; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+                    spacing: Style.space(8)
+                    Text { text: "󰕾"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
+                    Text { id: voiceGroupTitle; text: "Voice"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "· " + root.activeVoiceLabel + " · " + root.activeEngine; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight; width: parent.width - Style.space(150); font.family: Style.font.family; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
+                  }
+                  Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.showVoiceGroup ? "▾" : "▸"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
+                  MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showVoiceGroup = !root.showVoiceGroup }
                 }
-                Ui.Dropdown { id: activeProviderPicker; width: parent.width; label: "Speech provider"; options: root.providerOptions(); value: root.activeEngine; enabled: !root.enabledReader && !root.setupBusy; onChanged: { root.manageProvider(value); activeProviderPicker.value = Qt.binding(function() { return root.activeEngine }) } }
-                Ui.Dropdown { width: parent.width; label: "Voice / speaker"; visible: root.activeEngine !== "Online"; options: root.activeVoices; value: root.config.voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; onChanged: root.request({command: "configure", settings: {provider: "Local", voice: value}}) }
                 Column {
-                  width: parent.width; spacing: Style.space(4); visible: root.activeEngine === "Online"
-                  Ui.PanelSectionHeader { text: "Voice / speaker" }
-                  Ui.TextField { width: parent.width; text: root.config.online_voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; placeholderText: "Speech server voice ID"; onEditingFinished: root.set("online_voice", text) }
+                  width: parent.width; spacing: Style.spacing.md; visible: root.showVoiceGroup
+                  Ui.Dropdown { id: activeProviderPicker; width: parent.width; label: "Speech provider"; options: root.providerOptions(); value: root.activeEngine; enabled: !root.enabledReader && !root.setupBusy; onChanged: { root.manageProvider(value); activeProviderPicker.value = Qt.binding(function() { return root.activeEngine }) } }
+                  Ui.Dropdown { width: parent.width; label: "Voice / speaker"; visible: root.activeEngine !== "Online"; options: root.activeVoices; value: root.config.voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; onChanged: root.request({command: "configure", settings: {provider: "Local", voice: value}}) }
+                  Column {
+                    width: parent.width; spacing: Style.space(4); visible: root.activeEngine === "Online"
+                    Ui.PanelSectionHeader { text: "Voice / speaker" }
+                    Ui.TextField { width: parent.width; text: root.config.online_voice || ""; enabled: root.backendReady && !root.setupBusy && !root.enabledReader; placeholderText: "Speech server voice ID"; onEditingFinished: root.set("online_voice", text) }
+                  }
+                  Ui.Dropdown { width: parent.width; label: "Audio output · speakers / headphones"; options: root.state.audio_outputs || [{value: "auto", label: "System default"}]; value: root.config.audio_output || "auto"; enabled: root.backendReady && !root.setupBusy; onChanged: root.set("audio_output", value) }
+                  Text { width: parent.width; visible: (root.config.audio_output || "auto") !== "auto" && !(root.state.audio_outputs || []).some(function(v) { return v.value === root.config.audio_output }); text: "Selected audio output is disconnected. Reconnect it or choose System default."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+                  Flow {
+                    width: parent.width; spacing: Style.spacing.md
+                    Ui.Button { focusable: true; text: "Test voice"; bordered: true; enabled: root.backendReady && root.voiceReady && !root.enabledReader && !root.setupBusy && !root.state.installing_kokoro && !root.state.kokoro_checking; onClicked: root.request({command: "test-voice"}) }
+                  }
+                  Ui.Button { focusable: true; width: parent.width; text: "Add / manage speech providers…"; bordered: true; enabled: !root.enabledReader && !root.setupBusy; onClicked: root.showProviders ? root.showProviders = false : root.manageProvider(root.activeEngine) }
                 }
-                Ui.Dropdown { width: parent.width; label: "Audio output · speakers / headphones"; options: root.state.audio_outputs || [{value: "auto", label: "System default"}]; value: root.config.audio_output || "auto"; enabled: root.backendReady && !root.setupBusy; onChanged: root.set("audio_output", value) }
-                Text { width: parent.width; visible: (root.config.audio_output || "auto") !== "auto" && !(root.state.audio_outputs || []).some(function(v) { return v.value === root.config.audio_output }); text: "Selected audio output is disconnected. Reconnect it or choose System default."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
-                Flow {
-                  width: parent.width; spacing: Style.spacing.md
-                  Ui.Button { focusable: true; text: "Test voice"; bordered: true; enabled: root.backendReady && root.voiceReady && !root.enabledReader && !root.setupBusy && !root.state.installing_kokoro && !root.state.kokoro_checking; onClicked: root.request({command: "test-voice"}) }
-                }
-                Ui.Button { focusable: true; width: parent.width; text: "Add / manage speech providers…"; bordered: true; enabled: !root.enabledReader && !root.setupBusy; onClicked: root.showProviders ? root.showProviders = false : root.manageProvider(root.activeEngine) }
               }
             }
           }
