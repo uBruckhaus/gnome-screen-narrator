@@ -136,8 +136,22 @@ def ocr_languages():
     return _OCR_LANGUAGES['names']
 
 
-def desktop_notify(summary, body='', icon=None, timeout=None):
+NOTICES = []  # recent warnings/errors, also shown inside the popup (notifications sit behind it)
+
+
+def recent_notices(seconds=120):
+    cutoff = time.time() - seconds
+    return [n for n in NOTICES if n['time'] >= cutoff]
+
+
+def desktop_notify(summary, body='', icon=None, timeout=None, level='info'):
     """Send every notification through one sanitized notify-send call."""
+    if level in ('warning', 'error'):
+        text = plain_text(body or summary, 500)
+        # Millisecond ids keep increasing across reader restarts, so dismissing stays correct.
+        NOTICES.append(dict(id=max(int(time.time() * 1000), (NOTICES[-1]['id'] + 1) if NOTICES else 0), time=time.time(), level=level,
+                            title=plain_text(summary, 120), text=text))
+        del NOTICES[:-5]
     args = ['notify-send', '-a', 'Screen Narrator']
     if icon:
         args += ['-i', icon]
@@ -607,7 +621,7 @@ class Reader(QObject):
         if message != self.last_error:
             # Qt tray messages set NeedsAttention and a themed attention icon.
             # The desktop shell crashed loading that icon after a Piper error.
-            desktop_notify('Screen Narrator', message)
+            desktop_notify('Screen Narrator', message, level='error')
         self.last_error = message
         if getattr(self, 'testing_voice', False):
             self.set_enabled(False)
@@ -654,7 +668,7 @@ class Reader(QObject):
         if enabled and not getattr(self, 'testing_voice', False):
             problems = [c['problem'] for c in self.readiness_checks() if not c['ok']]
             if problems:
-                desktop_notify('Screen Narrator cannot start', problems[0])
+                desktop_notify('Screen Narrator cannot start', problems[0], level='error')
                 raise ValueError(problems[0])
         if getattr(self, 'preview_original', None) is not None:
             self.settings = self.preview_original
@@ -754,7 +768,7 @@ class Reader(QObject):
         x, y, w, h = map(int, match.groups())
         if w < 20 or h < 20:
             self.update('Looking for text…' if self.enabled else 'Off')
-            desktop_notify('Screen Narrator', 'Selected area was too small. Drag a box over the text to read.',
+            desktop_notify('Screen Narrator', 'Selected area was too small. Drag a box over the text to read.', level='warning',
                    icon='dialog-warning', timeout=2500)
             return
 
@@ -1577,7 +1591,7 @@ class Reader(QObject):
                             probed_settings=self.probed_settings, probed_voices=self.probed_voices,
                             piper_installations={lang: installed_settings(DATA, lang) for lang in PIPER if engine_ready(installed_settings(DATA, lang), 'piper')},
                             audio_outputs=outputs(), verified_provider=getattr(self, 'verified_provider', None),
-                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), checks=(checks := self.readiness_checks()), can_start=all(c['ok'] for c in checks), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
+                            settings=getattr(self, 'preview_original', None) or self.settings, key_ready=bool(self.online_token), online_models=self.online_models, models_loading=self.models_loading, provider_status=self.kokoro_install_status(), installing_kokoro=self.installing_kokoro, kokoro_languages={code: voice_is_available(next(k for k, v in VOICES.items() if v[1] == 'kokoro' and kokoro_voice_language(v[2]) == code), self.settings) for code in KOKORO}, languages=languages.options(), notices=recent_notices(), checks=(checks := self.readiness_checks()), can_start=all(c['ok'] for c in checks), voices=[dict(value=k, label=v[0], engine=v[1]) for k, v in available_voices(self.settings['language'], self.settings).items()], window=self.target_title,
                             queued=len(self.queue), processes=[t.proc.processId() for t in self.speech_tasks])
         except (ValueError, KeyError, TypeError) as error:
             response = {'error': str(error)}

@@ -111,3 +111,22 @@ class ReadinessTests(unittest.TestCase):
             Reader.set_enabled(subject, True, notify=True)
         self.assertFalse(subject.enabled)
         subject.timer.start.assert_not_called()
+
+
+class NoticeTests(unittest.TestCase):
+    def test_errors_are_kept_for_the_popup_and_info_is_not(self):
+        import reader
+        reader.NOTICES.clear()
+        with patch('reader.subprocess.Popen'):
+            reader.desktop_notify('Screen Narrator: ON', icon='audio-headphones')
+            reader.desktop_notify('Screen Narrator cannot start', 'No <b>model</b> chosen', level='error')
+            reader.desktop_notify('Screen Narrator', 'Area too small', level='warning')
+        notices = reader.recent_notices()
+        self.assertEqual([n['level'] for n in notices], ['error', 'warning'])
+        self.assertEqual(notices[0]['title'], 'Screen Narrator cannot start')
+        self.assertNotIn('<', notices[0]['text'])
+        self.assertLess(notices[0]['id'], notices[1]['id'])
+        for _ in range(10):
+            with patch('reader.subprocess.Popen'):
+                reader.desktop_notify('x', 'y', level='error')
+        self.assertEqual(len(reader.NOTICES), 5)

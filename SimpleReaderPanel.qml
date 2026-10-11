@@ -27,6 +27,12 @@ Ui.Panel {
   property string engineChoice: ""
   property bool showProviders: false
   property bool showReadingOptions: false
+  // Desktop notifications appear behind this popup, so warnings and errors are repeated here.
+  property int dismissedNotice: 0
+  readonly property var latestNotice: {
+    var list = state.notices || []
+    return list.length && list[list.length - 1].id > dismissedNotice ? list[list.length - 1] : null
+  }
   property string candidateVoice: ""
   property var draftPaths: ({})
   property bool draftUseManaged: false
@@ -251,6 +257,29 @@ Ui.Panel {
           }
         }
         Text { width: parent.width; text: "Read screen text and Kindle pages aloud."; color: Color.foreground; opacity: 0.65; font.family: Style.font.family; font.pixelSize: Style.font.body }
+        Rectangle {
+          width: parent.width
+          visible: root.latestNotice !== null
+          height: visible ? noticeText.implicitHeight + Style.space(16) : 0
+          radius: Style.cornerRadius
+          color: Qt.rgba(Theme.Color.accent.r, Theme.Color.accent.g, Theme.Color.accent.b, 0.18)
+          border.color: Theme.Color.accent
+          border.width: Math.max(1, Style.space(2))
+          Text {
+            id: noticeText
+            anchors.left: parent.left; anchors.right: noticeClose.left; anchors.verticalCenter: parent.verticalCenter
+            anchors.leftMargin: Style.space(10); anchors.rightMargin: Style.space(6)
+            text: root.latestNotice ? (root.latestNotice.level === "error" ? "⚠  " : "ⓘ  ") + root.latestNotice.title + "\n" + root.latestNotice.text : ""
+            textFormat: Text.PlainText; wrapMode: Text.Wrap
+            color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption
+          }
+          Ui.Button {
+            id: noticeClose
+            anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Style.space(4)
+            focusable: true; text: "✕"; fontSize: Style.font.caption; tooltipText: "Dismiss"
+            onClicked: root.dismissedNotice = root.latestNotice ? root.latestNotice.id : root.dismissedNotice
+          }
+        }
         Column {
           width: parent.width
           spacing: Style.spacing.md
