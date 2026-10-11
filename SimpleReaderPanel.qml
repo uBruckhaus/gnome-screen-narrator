@@ -506,7 +506,7 @@ Ui.Panel {
                     spacing: Style.space(8)
                     Text { text: "󰕾"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body + Style.space(4); anchors.verticalCenter: parent.verticalCenter }
                     Text { id: voiceGroupTitle; text: "Voice"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true; anchors.verticalCenter: parent.verticalCenter }
-                    Text { text: "· " + root.activeVoiceLabel + " · " + root.activeEngine; color: Color.foreground; opacity: 0.7; elide: Text.ElideRight; width: parent.width - Style.space(150); font.family: Style.font.family; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
+                    Text { text: "· " + root.activeVoiceLabel + (root.activeVoiceLabel.indexOf(root.activeEngine) >= 0 ? "" : " · " + root.activeEngine); color: Color.foreground; opacity: 0.7; elide: Text.ElideRight; width: parent.width - Style.space(150); font.family: Style.font.family; font.pixelSize: Style.font.caption; anchors.verticalCenter: parent.verticalCenter }
                   }
                   Text { anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; text: root.showVoiceGroup ? "▾" : "▸"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body }
                   MouseArea { anchors.fill: parent; cursorShape: Qt.PointingHandCursor; onClicked: root.showVoiceGroup = !root.showVoiceGroup }
