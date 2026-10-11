@@ -32,17 +32,17 @@ class TrayMenuTests(unittest.TestCase):
         subject.fail.assert_called_once_with('Unknown language')
 
     def test_rebuild_only_when_choices_change(self):
-        subject = SimpleNamespace(settings=dict(language='de', voice='kokoro-martin', audio_output='auto'),
-                                  choice_signature=None, voice_menu=Mock(), language_menu=Mock(), output_menu=Mock(),
+        subject = SimpleNamespace(settings=dict(language='de', voice='kokoro-martin', audio_output='auto', translate_to=''),
+                                  choice_signature=None, voice_menu=Mock(), language_menu=Mock(), output_menu=Mock(), translate_menu=Mock(),
                                   voice_language=lambda: 'de', fill_choice_menu=Mock(return_value={}), set_voice=Mock())
         with patch('reader.available_voices', return_value={'kokoro-martin': ('Martin', 'kokoro', 'martin')}), \
              patch('reader.outputs', return_value=[dict(value='auto', label='System default')]):
             Reader.refresh_choice_menus(subject)
             Reader.refresh_choice_menus(subject)
-            self.assertEqual(subject.fill_choice_menu.call_count, 3)
+            self.assertEqual(subject.fill_choice_menu.call_count, 4)
             subject.settings['language'] = 'en'
             Reader.refresh_choice_menus(subject)
-            self.assertEqual(subject.fill_choice_menu.call_count, 6)
+            self.assertEqual(subject.fill_choice_menu.call_count, 8)
 
 
 if __name__ == '__main__':

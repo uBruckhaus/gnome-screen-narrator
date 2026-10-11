@@ -508,6 +508,7 @@ class Reader(QObject):
         self.voice_menu = self.menu.addMenu('Voice')
         self.voice_actions = {}
         self.language_menu = self.menu.addMenu('Text language')
+        self.translate_menu = self.menu.addMenu('Speak in (translation)')
         self.output_menu = self.menu.addMenu('Audio output')
         self.choice_signature = None
         self.menu.aboutToShow.connect(lambda: self.refresh_choice_menus(force=True))
@@ -602,7 +603,7 @@ class Reader(QObject):
         return []
 
     def voice_language(self):
-        return self.settings['language']
+        return speech_language(self.settings)
 
     def fill_choice_menu(self, menu, choices, current, handler):
         """Replace a submenu with checkable (value, label) choices; returns value -> action."""
@@ -621,13 +622,17 @@ class Reader(QObject):
     def refresh_choice_menus(self, force=False):
         voices = [(key, name) for key, (name, *_rest) in available_voices(self.voice_language(), self.settings).items()]
         outs = [(o['value'], o['label']) for o in outputs()]
-        signature = (tuple(voices), tuple(outs), self.settings['voice'], self.settings['language'], self.settings['audio_output'])
+        signature = (tuple(voices), tuple(outs), self.settings['voice'], self.settings['language'], self.settings['audio_output'],
+                     self.settings.get('translate_to', ''))
         if signature == self.choice_signature and not force:
             return
         self.choice_signature = signature
         self.voice_actions = self.fill_choice_menu(self.voice_menu, voices, self.settings['voice'], self.set_voice)
         self.fill_choice_menu(self.language_menu, [(o['value'], o['label']) for o in languages.options()],
                               self.settings['language'], lambda v: self.menu_setting('language', v))
+        self.fill_choice_menu(self.translate_menu, [('', 'Off · read in the text language')] +
+                              [(o['value'], o['label']) for o in languages.options() if o['value'] != self.settings['language']],
+                              self.settings.get('translate_to', ''), lambda v: self.menu_setting('translate_to', v))
         self.fill_choice_menu(self.output_menu, outs, self.settings['audio_output'], lambda v: self.menu_setting('audio_output', v))
 
     def menu_setting(self, key, value):
