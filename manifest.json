@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.simple-reader",
   "name": "Screen Narrator",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
-  "description": "Read screen text and Kindle pages aloud in 50 languages. Local OCR and speech with guided Kokoro or Piper setup, highlighting and reading controls.",
+  "description": "Read screen text and Kindle pages aloud in 51 languages, optionally translated. Local OCR and speech with guided Kokoro or Piper setup and reading controls.",
   "kinds": [
     "bar-widget"
   ],
@@ -26,6 +26,7 @@
     "tts",
     "narrator",
     "multilingual",
+    "translation",
     "kindle",
     "quickshell"
   ]

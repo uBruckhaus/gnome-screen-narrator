@@ -27,6 +27,8 @@ Ui.Panel {
   property string engineChoice: ""
   property bool showProviders: false
   property bool showReadingOptions: false
+  property bool showTranslation: false
+  property bool rememberTranslatorToken: false
   property bool showVoiceGroup: false
   property bool showReadingGroup: false
   // Desktop notifications appear behind this popup, so warnings and errors are repeated here.
@@ -53,7 +55,8 @@ Ui.Panel {
     return draftUseManaged && selectedEngine === "Piper" ? managed[key] || draftPaths[key] || "" : draftPaths[key] || ""
   }
   function candidateBase() {
-    var settings = {provider: "Local", language: installLanguage}
+    var settings = {provider: "Local"}
+    settings[speechLanguageKey] = installLanguage
     var keys = selectedEngine === "Piper" ? ["piper_runner", "piper_model", "piper_config"] : selectedEngine === "Qwen" ? ["qwen_runner", "qwen_model", "qwen_projection", "qwen_speaker"] : []
     keys.forEach(function(k) { settings[k] = root.candidatePath(k) })
     return settings
@@ -78,9 +81,18 @@ Ui.Panel {
   readonly property bool piperSupportsLanguage: languageInfo(installLanguage).piper === true
   // The chosen local engine cannot speak the reading language; offer the other one.
   readonly property bool engineLacksLanguage: selectedEngine === "Kokoro" ? !kokoroSupportsLanguage : selectedEngine === "Piper" && !piperSupportsLanguage
+  // With translation on, voices are set up for the target language.
+  readonly property string speechLanguageKey: config.translate_to ? "translate_to" : "language"
+  readonly property bool translating: !!config.translate_to
+  readonly property var translateOptions: [{value: "", label: "Off · read in the text language"}].concat(languageOptions.filter(function(o) { return o.value !== root.config.language }))
+  readonly property string translatorPreset: {
+    var presets = state.translator_endpoints || {}
+    for (var key in presets) if (presets[key] === config.translator_endpoint) return key
+    return "Custom"
+  }
   readonly property string installLanguageName: languageInfo(installLanguage).label.split(" · ")[0]
   readonly property string activeVoiceLabel: config.provider === "Online" ? (config.online_voice || "No voice") : voiceLabel(config.voice)
-  readonly property string providerSummary: "Active: " + (activeEngine === "Online" ? "Speech server · " + (config.online_endpoint || "") : activeEngine + " · Local") + "\n" + activeVoiceLabel + " · " + languageInfo(config.language).label + " · " + (!(backendReady && voiceReady) ? "Setup needed" : state.can_start === false ? "Not ready" : "Ready to read")
+  readonly property string providerSummary: "Active: " + (activeEngine === "Online" ? "Speech server · " + (config.online_endpoint || "") : activeEngine + " · Local") + "\n" + activeVoiceLabel + " · " + languageInfo(config.language).label + (translating ? " → " + languageInfo(config.translate_to).label : "") + " · " + (!(backendReady && voiceReady) ? "Setup needed" : state.can_start === false ? "Not ready" : "Ready to read")
   function engineForVoice(voice) {
     var id = voice || ""
     return id.indexOf("piper") >= 0 || id.indexOf("fast") >= 0 ? "Piper" : id.indexOf("qwen") >= 0 ? "Qwen" : "Kokoro"
@@ -98,7 +110,7 @@ Ui.Panel {
   }
   function manageProvider(engine) {
     engineChoice = engine || activeEngine
-    candidateLanguage = config.language || "en"
+    candidateLanguage = config.translate_to || config.language || "en"
     draftPaths = Object.assign({}, config)
     draftUseManaged = !config.piper_model
     candidateVoice = ""
@@ -112,7 +124,11 @@ Ui.Panel {
     probeCandidate()
   }
   function candidateSettings() {
-    if (selectedEngine === "Online") return {provider: "Online", online_endpoint: onlineEndpoint, online_model: onlineModel, online_voice: onlineVoice, language: installLanguage}
+    if (selectedEngine === "Online") {
+      var online = {provider: "Online", online_endpoint: onlineEndpoint, online_model: onlineModel, online_voice: onlineVoice}
+      online[speechLanguageKey] = installLanguage
+      return online
+    }
     var voice = candidateVoice || (candidateVoices.length ? candidateVoices[0].value : "")
     return Object.assign(candidateBase(), {voice: voice})
   }
@@ -149,7 +165,7 @@ Ui.Panel {
     request({command: "setup", language: installLanguage})
   }
 
-  readonly property string installLanguage: candidateLanguage || config.language || "en"
+  readonly property string installLanguage: candidateLanguage || config.translate_to || config.language || "en"
   readonly property bool kokoroSelectedInstalled: (state.kokoro_languages || {})[installLanguage] === true
   readonly property bool enabledReader: state.enabled === true
   onShowManualViewChanged: panelScroll.contentY = 0
@@ -162,6 +178,7 @@ Ui.Panel {
     content.forceActiveFocus()
     return true
   }
+  onShowTranslationChanged: panelScroll.contentY = 0
   // The single next step shown when reading cannot start yet.
   property bool showMoreFixes: false
   readonly property var failedChecks: (state.checks || []).filter(function(c) { return !c.ok })
@@ -203,6 +220,7 @@ Ui.Panel {
   function applyFix(fix) {
     if (fix.command) { request(Object.assign({command: fix.command}, fix.args || {})); return }
     if (fix.panel === "providers") manageProvider(activeEngine)
+    else if (fix.panel === "translation") showTranslation = true
     else if (fix.settings) request({command: "configure", settings: fix.settings})
   }
   function closeProviders() {
@@ -237,6 +255,7 @@ Ui.Panel {
         engineChoice = ""
       }
       if (!loaded) rememberToken = (data.settings || {}).remember_token === true
+      if (!loaded) rememberTranslatorToken = (data.settings || {}).remember_translator_token === true
       state = data; message = actionError || (data.setup_busy || data.setup_phase === "error" || data.setup_phase === "cancelled" ? data.setup_message : data.provider_status || data.status || "Ready"); loaded = true
       if (showProviders && selectedEngine !== "Online" && backendReady && !setupBusy && !sameSettings(state.probed_settings || {}, candidateBase())) probeCandidate()
     } catch (e) { message = "Cannot read Screen Narrator response." }
@@ -332,7 +351,7 @@ Ui.Panel {
           Column {
             width: parent.width
             spacing: Style.spacing.md
-            visible: !root.showProviders
+            visible: !root.showProviders && !root.showTranslation
             Rectangle {
               width: parent.width
               height: activeSummary.implicitHeight + Style.space(20)
@@ -470,6 +489,7 @@ Ui.Panel {
                 }
               }
             }
+            Ui.Button { focusable: true; width: parent.width; text: "Translation · " + (root.translating ? root.languageInfo(root.config.language).label.split(" · ")[0] + " → " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] : "off") + "…"; bordered: true; enabled: root.backendReady && !root.setupBusy; onClicked: root.showTranslation = true }
           }
           Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.closeProviders() }
           Text { width: parent.width; visible: root.showProviders && root.setupBusy; text: root.state.setup_message || "Setting up…"; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
@@ -487,7 +507,7 @@ Ui.Panel {
             Column {
               width: parent.width; spacing: Style.spacing.md
               visible: root.selectedEngine === "Kokoro" || root.selectedEngine === "Piper"
-              Text { width: parent.width; text: root.selectedEngine === "Kokoro" ? (root.kokoroSupportsLanguage ? "Local speech. Download about 330–354 MB plus runtime packages. No separate AI server needed." : "Kokoro has no " + root.installLanguageName + " voice. Piper offers a local " + root.installLanguageName + " voice (about " + root.languageInfo(root.installLanguage).piper_mb + " MB).") : !root.piperSupportsLanguage ? "Piper has no working " + root.installLanguageName + " voice. Kokoro offers local " + root.installLanguageName + " voices." : "Local speech. Install Piper and a " + root.installLanguageName + " voice. Voice download about " + root.languageInfo(root.installLanguage).piper_mb + " MB plus runtime packages. Existing reader packages stay separate."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+              Text { width: parent.width; text: root.selectedEngine === "Kokoro" ? (root.kokoroSupportsLanguage ? "Local speech. Download about 330–354 MB plus runtime packages" + (root.installLanguage === "ja" ? " and a Japanese pronunciation dictionary (about 270 MB)" : "") + ". No separate AI server needed." : "Kokoro has no " + root.installLanguageName + " voice. Piper offers a local " + root.installLanguageName + " voice (about " + root.languageInfo(root.installLanguage).piper_mb + " MB).") : !root.piperSupportsLanguage ? "Piper has no working " + root.installLanguageName + " voice. Kokoro offers local " + root.installLanguageName + " voices." : "Local speech. Install Piper and a " + root.installLanguageName + " voice. Voice download about " + root.languageInfo(root.installLanguage).piper_mb + " MB plus runtime packages. Existing reader packages stay separate."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
               Ui.SearchableDropdown { placeholderText: "Type to filter languages…"; id: installLanguagePicker; width: parent.width; label: "Reading language"; options: root.languageOptions; value: root.installLanguage; onChanged: { root.candidateLanguage = value; root.candidateVoice = ""; root.probeCandidate(); installLanguagePicker.value = Qt.binding(function() { return root.installLanguage }) } }
               Ui.Button { focusable: true; width: parent.width; text: root.engineLacksLanguage ? "Set up " + (root.selectedEngine === "Kokoro" ? "Piper" : "Kokoro") + " for " + root.installLanguageName + " instead" : root.selectedEngine === "Kokoro" ? (root.kokoroSelectedInstalled ? "Repair Kokoro / reader" : "Install Kokoro voice & reader") : "Install / repair Piper voice & reader"; bordered: true; onClicked: root.engineLacksLanguage ? root.switchInstallEngine() : root.selectedEngine === "Kokoro" ? root.setup() : root.request({command: "setup", engine: "piper", language: root.installLanguage, backend_only: true}) }
 
@@ -563,6 +583,47 @@ Ui.Panel {
             }
           }
           Ui.Button { focusable: true; width: parent.width; visible: root.showProviders; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.closeProviders() }
+          Ui.Button { focusable: true; width: parent.width; visible: root.showTranslation; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.showTranslation = false }
+          Column {
+            width: parent.width; spacing: Style.spacing.md; visible: root.showTranslation
+            enabled: root.backendReady && !root.setupBusy
+            Text { text: "Translation"; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.body; font.bold: true }
+            Text { width: parent.width; text: "Read the text in one language and hear it in another. Off by default. Translation needs a translator: a local LLM server (llama.cpp, LM Studio, Ollama) or the offline NLLB-200 model. User Manual → Translation explains the setup."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+            Ui.Dropdown { id: translateToPicker; width: parent.width; label: "Speak in"; enabled: !root.enabledReader; options: root.translateOptions; value: root.config.translate_to || ""; onChanged: { root.set("translate_to", value); translateToPicker.value = Qt.binding(function() { return root.config.translate_to || "" }) } }
+            Ui.Dropdown { id: translatorPicker; width: parent.width; label: "Translator"; enabled: !root.enabledReader; options: [{value: "llm", label: "LLM server · llama.cpp, LM Studio, Ollama"}, {value: "nllb", label: "Offline NLLB-200 · 1.4 GB · non-commercial license"}]; value: root.config.translator || "llm"; onChanged: { root.set("translator", value); translatorPicker.value = Qt.binding(function() { return root.config.translator || "llm" }) } }
+            Column {
+              width: parent.width; spacing: Style.spacing.md; visible: (root.config.translator || "llm") === "llm"
+              Ui.Dropdown { id: presetPicker; width: parent.width; label: "Server"; enabled: !root.enabledReader; options: Object.keys(root.state.translator_endpoints || {}).map(function(k) { return {value: k, label: k + " · " + root.state.translator_endpoints[k]} }).concat([{value: "Custom", label: "Custom · any OpenAI-compatible server"}]); value: root.translatorPreset; onChanged: { if (value !== "Custom") root.set("translator_endpoint", root.state.translator_endpoints[value]); presetPicker.value = Qt.binding(function() { return root.translatorPreset }) } }
+              Ui.TextField { width: parent.width; text: root.config.translator_endpoint || ""; enabled: !root.enabledReader; placeholderText: "http://127.0.0.1:8080/v1 or https://server/v1"; onEditingFinished: if (text !== root.config.translator_endpoint) root.set("translator_endpoint", text) }
+              Ui.TextField { width: parent.width; text: root.config.translator_model || ""; enabled: !root.enabledReader; placeholderText: "Model name, e.g. as shown by Refresh models"; onEditingFinished: if (text !== root.config.translator_model) root.set("translator_model", text) }
+              Ui.Dropdown { id: translatorModelPicker; width: parent.width; visible: (root.state.translator_models || []).length > 0; label: "Models on the server"; enabled: !root.enabledReader; options: (root.state.translator_models || []).map(function(m) { return {value: m, label: m} }); value: root.config.translator_model || ""; onChanged: { root.set("translator_model", value); translatorModelPicker.value = Qt.binding(function() { return root.config.translator_model || "" }) } }
+              Flow {
+                width: parent.width; spacing: Style.spacing.md
+                Ui.Button { focusable: true; text: root.state.translator_models_loading ? "Refreshing…" : "Refresh models"; bordered: true; enabled: !root.state.translator_models_loading; onClicked: root.request({command: "translator-models"}) }
+              }
+              Ui.TextField { id: translatorToken; width: parent.width; password: true; enabled: !root.enabledReader; placeholderText: root.state.translator_key_ready ? "Token in use · enter to replace" : "Token, only for servers that need one" }
+              Ui.Toggle { width: parent.width; label: "Remember token on this device"; checked: root.rememberTranslatorToken; onClicked: root.rememberTranslatorToken = !checked }
+              Flow {
+                width: parent.width; spacing: Style.spacing.md
+                Ui.Button { focusable: true; text: "Apply token"; bordered: true; enabled: !root.enabledReader && translatorToken.text.length > 0; onClicked: { root.request({command: "configure-translator-token", token: translatorToken.text, remember_token: root.rememberTranslatorToken}); translatorToken.text = "" } }
+                Ui.Button { focusable: true; text: "Clear token"; bordered: true; enabled: !root.enabledReader && root.state.translator_key_ready === true; onClicked: root.request({command: "configure-translator-token", token: "", remember_token: false}) }
+              }
+              Text { width: parent.width; text: "Remote HTTPS servers receive the recognized text. llama.cpp, LM Studio and Ollama on this computer keep it local."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+            }
+            Column {
+              width: parent.width; spacing: Style.spacing.md; visible: root.config.translator === "nllb"
+              Text { width: parent.width; text: root.state.nllb_ready ? "Offline translator installed. It runs on this computer; the first page takes a few seconds to load the model." : "Downloads NLLB-200 1.3B (about 1.4 GB, checksum-verified) and its runtime. The model license (CC-BY-NC 4.0) allows non-commercial use only."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+              Flow {
+                width: parent.width; spacing: Style.spacing.md
+                Ui.Button { focusable: true; text: root.state.nllb_ready ? "Repair offline translator" : "Install offline translator"; bordered: true; enabled: !root.enabledReader && !root.state.installing_translator; onClicked: root.request({command: "install-translator"}) }
+                Ui.Button { focusable: true; text: "Cancel"; bordered: true; visible: root.state.installing_translator === true; onClicked: root.request({command: "cancel-translator-install"}) }
+              }
+            }
+            Ui.Button { focusable: true; text: root.state.translation_testing ? "Testing…" : "Test translation"; bordered: true; enabled: root.translating && !root.enabledReader && !root.state.translation_testing && !root.state.installing_translator; onClicked: root.request({command: "test-translation"}) }
+            Text { width: parent.width; visible: !!root.state.translation_status; text: root.state.translation_status || ""; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Color.foreground; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+            Text { width: parent.width; visible: root.translating && !root.voiceReady; text: "No voice for " + root.languageInfo(root.config.translate_to).label.split(" · ")[0] + " yet. Use Add / manage speech providers… to install one."; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.Color.accent; font.family: Style.font.family; font.pixelSize: Style.font.caption }
+          }
+          Ui.Button { focusable: true; width: parent.width; visible: root.showTranslation; text: "← Back to Reading Controls · ⌫"; bordered: true; onClicked: root.showTranslation = false }
           Text { width: parent.width; text: "Reading controls save immediately; provider setup applies with Use provider. Closing this popup leaves narration running. Focus the window you want to read."; wrapMode: Text.Wrap; color: Color.foreground; opacity: 0.65; font.family: Style.font.family; font.pixelSize: Style.font.caption }
         }
         Column {
@@ -573,10 +634,11 @@ Ui.Panel {
           Repeater {
             model: [
               {title: "1. Reading Controls", body: "• ▶ Start, ❚❚ Pause and ■ Stop sit right under the summary. Right-click the bar icon to start or stop without opening the popup.\n• First use: open Add / manage speech providers, choose Kokoro and a voice language, then Install Kokoro voice & reader. Test provider voice, then Use provider. Then Test voice or focus your text window and Start reading. Existing reader shortcuts can also be used; this plugin does not replace desktop shortcuts.\n• Pause/Resume controls playback; Read again restarts the current page.\n• Stop ends narration and reader-owned capture. Closing this popup leaves narration running.\n• On a subpage (provider setup, translation, this manual) Backspace returns to the reading controls; Esc closes the popup."},
-              {title: "2. Voice, Language & Speed", body: "• Choose the text language (50 languages) and a local voice for it. Kokoro speaks English, German, Spanish, French, Italian, Portuguese, Hindi and Chinese; Piper covers all 50.\n• Kokoro is the default local voice. Add / manage speech providers offers Kokoro and Piper installation, a Qwen file checklist, or a compatible speech server. Optional local voices appear only with their runtimes and models installed.\n• Online supports endpoint, model, voice and token configuration. Test provider voice, then Use provider. The active provider stays selected during setup.\n• Audio output chooses speakers or headphones for every provider. System default follows your desktop setting.\n• Set speed from 60% to 200%. Reading controls save immediately."},
+              {title: "2. Voice, Language & Speed", body: "• Choose the text language (51 languages) and a local voice for it. Kokoro speaks English, German, Spanish, French, Italian, Portuguese, Hindi, Japanese and Chinese; Piper covers all except Japanese.\n• Kokoro is the default local voice. Add / manage speech providers offers Kokoro and Piper installation, a Qwen file checklist, or a compatible speech server. Optional local voices appear only with their runtimes and models installed.\n• Online supports endpoint, model, voice and token configuration. Test provider voice, then Use provider. The active provider stays selected during setup.\n• Audio output chooses speakers or headphones for every provider. System default follows your desktop setting.\n• Set speed from 60% to 200%. Reading controls save immediately."},
               {title: "3. Reading & Kindle", body: "• Follow active window and page changes enables continuous reading.\n• Kindle cropping skips the toolbar and margins.\n• Automatic page turning advances Kindle after narration finishes.\n• Manual page changes stop old speech and resume when the new text settles."},
               {title: "4. Reading Area & Highlighting", body: "• Select area closes the popup so you can choose a region.\n• Reset area returns to the full active window.\n• Highlighting follows the current speech chunk and hides when another window has focus."},
-              {title: "5. Troubleshooting & Privacy", body: "• No speech: verify narration is on, your text window has focus and the voice is installed.\n• Unwanted text: choose a smaller area or enable Kindle cropping.\n• OCR always runs locally. Local speech stays on this device; Online sends the recognized text to your selected provider."}
+              {title: "5. Translation (optional)", body: "• Off by default. Turn it on under Translation → Speak in: the reader recognizes the text language and speaks the chosen language.\n• Set up a voice for the spoken language first: Add / manage speech providers… then uses that language.\n• Translator A — local LLM server (best quality, needs a GPU or patience):\n  – llama.cpp: install it (sudo pacman -S llama-cpp, or a GPU build from the llama.cpp releases), download an instruct GGUF model such as Gemma, Qwen or Llama, start it with  llama-server -m model.gguf --port 8080  and choose Server: llama.cpp.\n  – LM Studio: load a chat model, open Developer → Start server (port 1234), choose Server: LM Studio.\n  – Ollama: ollama pull gemma3 (or another chat model), keep ollama serve running, choose Server: Ollama.\n  – Refresh models lists the server's models; pick a chat/instruct model. Tokens are only for servers that require one.\n• Translator B — offline NLLB-200: Install offline translator downloads about 1.4 GB once. No server needed; runs on the CPU. License CC-BY-NC 4.0: non-commercial use only.\n• Test translation translates a sample sentence and shows the result without speaking.\n• Highlighting marks the original sentence while its translation is spoken. Remote HTTPS servers receive the recognized text."},
+              {title: "6. Troubleshooting & Privacy", body: "• No speech: verify narration is on, your text window has focus and the voice is installed.\n• Unwanted text: choose a smaller area or enable Kindle cropping.\n• OCR always runs locally. Local speech stays on this device; Online sends the recognized text to your selected provider."}
             ]
             delegate: Rectangle {
               required property var modelData

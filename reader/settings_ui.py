@@ -13,7 +13,7 @@ MANUAL = [
         'Right-click the tray icon for voice, speed, Read again, settings and quit.',
         'Middle-click the tray icon to pause or resume. Off stops speech and reader-owned work.']),
     ('2. Voice, Language & Speed', [
-        'Choose the text language and a local voice for it. Kokoro covers eight languages, Piper all 50.',
+        'Choose the text language and a local voice for it. Kokoro covers nine languages, Piper the others (51 in total).',
         'Kokoro is the default neural engine; Piper Fast is the lower-latency option. Qwen voices can need a longer warm-up.',
         'Set reading speed from 0.6× to 2×. Save applies your changes; Cancel discards uncommitted settings.']),
     ('3. Continuous Reading & Kindle', [

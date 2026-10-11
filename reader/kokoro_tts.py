@@ -14,7 +14,7 @@ if str(KOKORO_DIR) not in sys.path:
 
 import numpy as np
 import soundfile as sf
-from kokoro_compat import create, load
+from kokoro_compat import create, japanese_phonemes, load
 from kokoro_updates import model_paths
 from languages import kokoro_phonemes
 
@@ -70,7 +70,10 @@ def synthesize(text, voice, language, speed, output):
 
     kokoro = get_kokoro(voice)
     try:
-        samples, sample_rate = create(kokoro, text, voice, speed, lang)
+        if lang == 'ja':
+            samples, sample_rate = create(kokoro, japanese_phonemes(text), voice, speed, lang, is_phonemes=True)
+        else:
+            samples, sample_rate = create(kokoro, text, voice, speed, lang)
     except Exception as e:
         # Fallback to en-us if requested language phonemizer encounters an issue
         if lang != "en-us" and "No phonemes" in str(e):

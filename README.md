@@ -27,9 +27,9 @@ setup stays separate from active settings until you test and activate it. Readin
 options expand Kindle, following, highlighting and area controls. Advanced contains
 manual files and maintenance. See [MANUAL.md](MANUAL.md) for the full setup flow.
 
-**50 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
-Hindi and Chinese (about 330–354 MB plus runtime packages). Piper covers all
-50 languages with one voice each (60–122 MB plus a separate pinned runtime). Setup
+**51 languages.** Kokoro speaks English, German, Spanish, French, Italian, Portuguese,
+Hindi, Japanese and Chinese (about 330–354 MB plus runtime packages; Japanese adds a
+270 MB pronunciation dictionary). Piper covers the other languages with one voice each (60–122 MB plus a separate pinned runtime). Setup
 installs the matching Tesseract OCR data. The popup defaults to your desktop locale. Progress, retry and cancellation
 are built in; system package transactions request authorization and cannot be
 cancelled from the popup. Setup does not start narration or add shortcuts.
@@ -67,6 +67,15 @@ Only available voices are selectable. Custom file paths remain under Advanced.
 Installing a chat model does not install a speech voice; Whisper is speech-to-text.
 See [MANUAL.md](MANUAL.md) for voice requirements and model update instructions.
 
+## Translation (optional)
+
+Off by default. **Translation → Speak in** reads a page in one language and speaks it in
+another, for example German text heard in Japanese. Translators: a local OpenAI-compatible
+LLM server (llama.cpp `llama-server`, LM Studio or Ollama; remote HTTPS servers work too)
+or the offline NLLB-200 1.3B model (about 1.4 GB, CC-BY-NC 4.0, non-commercial use only).
+Neither is installed by default. [MANUAL.md](MANUAL.md#translation-optional) has the setup
+steps for each server.
+
 ## Online speech providers
 
 Under **Add / manage speech providers…**, choose **Speech server**, enter an HTTPS endpoint, choose or enter a speech model ID and voice ID, enter an API key/bearer token if required, then **Test provider voice → Use provider**. **Refresh models** is optional; enter the model manually when discovery is unavailable. The provider must support the [OpenAI-compatible speech request](https://developers.openai.com/api/reference/resources/audio/subresources/speech/methods/create) at `/v1/audio/speech` with WAV output. Model discovery can also list chat models, so select a speech-capable model. HTTP is allowed only on loopback for local compatible servers.
@@ -75,7 +84,7 @@ OCR stays local. Online speech sends the text being read to the selected provide
 
 ## Marketplace summary
 
-**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 50 languages with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
+**Screen Narrator — visible text, spoken aloud.** Local OCR narration in 51 languages, with optional translation into any of them, with Kokoro and Piper voices, adjustable reading speed, passage highlighting, selected reading areas and Kindle page controls. Optional OpenAI-compatible online speech supports API keys or bearer tokens. A native Omarchy bar popup keeps controls together. Guided one-button local Kokoro setup; optional Piper, Qwen via llama.cpp, and compatible speech servers. No voice model or credential is bundled.
 
 ## Development checks
 

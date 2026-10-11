@@ -91,6 +91,8 @@ def voice_is_available(key, settings=None):
             return False
         if not all(importlib.util.find_spec(name) is not None for name in ('kokoro_onnx', 'soundfile', 'onnxruntime')):
             return False
+        if kokoro_voice_language(reference) == 'ja' and not all(importlib.util.find_spec(name) for name in languages.JAPANESE_MODULES):
+            return False
         return all(present(path) for path in model_paths(kokoro_voice_language(reference) or 'en'))
     if engine == 'piper':
         return executable(DATA / 'venv/bin/piper') and all(present(DATA / 'voices' / name) for name in (reference, reference + '.json'))

@@ -9,7 +9,7 @@ import sys
 import tempfile
 import urllib.request
 from pathlib import Path
-from languages import KOKORO, kokoro_family
+from languages import JAPANESE_MODULES, JAPANESE_PACKAGES, KOKORO, kokoro_family
 
 STANDARD = 'https://github.com/thewh1teagle/kokoro-onnx/releases/download/model-files-v1.0/'
 GERMAN_REVISION = 'a1cba7fbf0e72fbae38f0a3a48ce0dc8e6077804'
@@ -77,6 +77,7 @@ def write_launcher():
 def install(language, progress=None, check_only=False):
     if language not in KOKORO:
         raise ValueError('Kokoro has no voice for this language; use Piper')
+    japanese = language == 'ja'
     language = kokoro_family(language)
     folder = Path.home() / '.local/share/kindle-reader/kokoro'
     def report(message):
@@ -87,17 +88,23 @@ def install(language, progress=None, check_only=False):
             temp.write_text(json.dumps({'message': message}))
             temp.replace(path)
     dependencies = all(importlib.util.find_spec(name) for name in ('kokoro_onnx', 'soundfile', 'onnxruntime'))
+    japanese_ready = all(importlib.util.find_spec(name) for name in JAPANESE_MODULES)
     from kokoro_updates import active_models, model_paths, update
     active = active_models().get(language, {})
     if check_only:
         if active:
             return dependencies and all(valid_asset(path, active.get('digests', {}).get(path.name, '')) for path in model_paths(language))
-        return dependencies and all(valid_asset(folder / name, digest) for name, _, digest in ASSETS[language])
+        return dependencies and (japanese_ready or not japanese) and all(valid_asset(folder / name, digest) for name, _, digest in ASSETS[language])
     folder.mkdir(parents=True, exist_ok=True)
     if not dependencies:
         report('Installing Kokoro runtime dependencies…')
         subprocess.run([sys.executable, '-m', 'pip', 'install', 'kokoro-onnx==0.4.7', 'soundfile==0.14.0'],
                        check=True, timeout=900)
+    if japanese and not japanese_ready:
+        report('Installing Japanese pronunciation dictionary (about 270 MB)…')
+        # unidic-lite is a pure-data source package; everything else is a wheel.
+        subprocess.run([sys.executable, '-m', 'pip', 'install', '--prefer-binary', *JAPANESE_PACKAGES],
+                       check=True, timeout=1800, stdout=sys.stderr)
     # Setup/repair must not silently revert a model installed by Update.
     if active:
         if not all(valid_asset(path, active.get('digests', {}).get(path.name, '')) for path in model_paths(language)):

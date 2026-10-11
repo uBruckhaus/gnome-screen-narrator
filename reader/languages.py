@@ -32,6 +32,7 @@ LANGUAGES = {
     'hy': ('Armenian', 'Հայերեն', 'hye', 'Բարև, սա փորձարկում է։'),
     'id': ('Indonesian', 'Bahasa Indonesia', 'ind', 'Halo, ini adalah tes.'),
     'is': ('Icelandic', 'Íslenska', 'isl', 'Halló, þetta er próf.'),
+    'ja': ('Japanese', '日本語', 'jpn', 'こんにちは。この声があなたの文章を読み上げます。'),
     'it': ('Italian', 'Italiano', 'ita', 'Ciao, questa è una prova.'),
     'ka': ('Georgian', 'ქართული', 'kat', 'გამარჯობა, ეს ტესტია.'),
     'kk': ('Kazakh', 'Қазақша', 'kaz', 'Сәлеметсіз бе, бұл сынақ.'),
@@ -70,6 +71,7 @@ KOKORO = {
     'es': ('en', 'es', [('ef_dora', 'Dora · female'), ('em_alex', 'Alex · male')]),
     'fr': ('en', 'fr-fr', [('ff_siwis', 'Siwis · female')]),
     'it': ('en', 'it', [('if_sara', 'Sara · female'), ('im_nicola', 'Nicola · male')]),
+    'ja': ('en', 'ja', [('jf_alpha', 'Alpha · female'), ('jm_kumo', 'Kumo · male')]),
     'pt': ('en', 'pt-br', [('pf_dora', 'Dora · female'), ('pm_alex', 'Alex · male')]),
     'hi': ('en', 'hi', [('hf_alpha', 'Alpha · female'), ('hm_omega', 'Omega · male')]),
     'zh': ('en', 'cmn', [('zf_xiaobei', 'Xiaobei · female'), ('zm_yunjian', 'Yunjian · male')]),
@@ -77,8 +79,8 @@ KOKORO = {
 
 # code: (folder, model file, model SHA256, config SHA256, size in MB)
 # Piper 1.8 cannot run the Japanese, Thai or Lithuanian voices (non-espeak
-# phonemizers), and Kokoro's espeak phonemizer cannot read kanji, so these three
-# languages are not offered.
+# phonemizers). Japanese is spoken by Kokoro with the misaki pronunciation pack
+# below (espeak cannot read kanji); Thai and Lithuanian are not offered.
 PIPER = {
     'ar': ('ar/ar_JO/kareem/medium/', 'ar_JO-kareem-medium.onnx',
            '9e95cab07b679da603bba17c4dec7ab3111320571964ee95c0379603c086491e',
@@ -236,6 +238,9 @@ PIPER = {
 # Languages the Qwen3-TTS 12 Hz models speak.
 QWEN_LANGUAGES = ('zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it')
 
+# Japanese needs its own grapheme-to-phoneme step; installed only with a Japanese Kokoro voice.
+JAPANESE_PACKAGES = ['misaki[ja]==0.7.4', 'fugashi==1.5.2', 'unidic-lite==1.0.8', 'jaconv==0.5.0', 'mojimoji==0.0.13']
+JAPANESE_MODULES = ('misaki', 'fugashi', 'unidic_lite', 'jaconv', 'mojimoji')
 
 # code: FLORES-200 language token of the offline NLLB-200 translator
 NLLB = dict(ar='arb_Arab', bg='bul_Cyrl', bn='ben_Beng', ca='cat_Latn', cs='ces_Latn', cy='cym_Latn', da='dan_Latn', de='deu_Latn',

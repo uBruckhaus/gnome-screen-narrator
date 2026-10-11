@@ -16,7 +16,8 @@ class LanguageCatalogTests(unittest.TestCase):
             self.assertTrue(english and native and sample.strip())
             self.assertTrue(code in PIPER or code in KOKORO, code)
         self.assertLessEqual(set(KOKORO) | set(PIPER), set(LANGUAGES))
-        self.assertNotIn('ja', LANGUAGES)  # no local voice can read kanji yet
+        self.assertIn('ja', KOKORO)
+        self.assertNotIn('ja', PIPER)  # Piper 1.8 cannot run its Japanese voice
 
     def test_piper_assets_are_pinned_and_checksummed(self):
         for code, (prefix, name, model, config, size) in PIPER.items():

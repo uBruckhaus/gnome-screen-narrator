@@ -29,7 +29,21 @@ def load(model_path, voices_path):
     return model
 
 
-def create(model, text, voice, speed=1.0, lang='en-us'):
+def create(model, text, voice, speed=1.0, lang='en-us', is_phonemes=False):
     if isinstance(model.sess, FloatSpeedSession):
         model.sess.speed = float(speed)
+    if is_phonemes:
+        return model.create(text, voice=voice, speed=speed, lang=lang, is_phonemes=True)
     return model.create(text, voice=voice, speed=speed, lang=lang)
+
+
+_JAPANESE = []
+
+
+def japanese_phonemes(text):
+    """Kanji-aware Japanese phonemes (misaki + UniDic); espeak reads kanji as 'Chinese letter'."""
+    if not _JAPANESE:
+        from misaki import ja
+        _JAPANESE.append(ja.JAG2P())
+    result = _JAPANESE[0](text)
+    return result[0] if isinstance(result, tuple) else result
