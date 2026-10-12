@@ -1879,11 +1879,25 @@ class Reader(QObject):
         client.disconnected.connect(client.deleteLater)
 
     def command(self, client):
-        if not client.canReadLine():
-            return
+        # One request per line. "keep": true leaves the connection open for the next
+        # request (the bar widget's reading-state watch); otherwise it closes after replying.
+        while client.canReadLine():
+            if not self.answer(client):
+                client.disconnectFromServer()
+                return
+
+    def answer(self, client):
+        """Reply to one request line; True keeps the connection open."""
+        keep = False
         try:
             request = json.loads(bytes(client.readLine()))
+            keep = request.get('keep') is True
             command = request['command']
+            if command == 'watch':
+                # Lightweight state for the bar icon, polled while the bar runs.
+                client.write((json.dumps(dict(enabled=self.enabled, paused=self.paused, status=self.status)) + '\n').encode())
+                client.flush()
+                return keep
             if command == 'on': self.set_enabled(True, notify=True)
             elif command == 'off': self.set_enabled(False, notify=True)
             elif command == 'toggle': self.set_enabled(not self.enabled, notify=True)
@@ -1929,7 +1943,7 @@ class Reader(QObject):
             response = {'error': str(error)}
         client.write((json.dumps(response) + '\n').encode())
         client.flush()
-        client.disconnectFromServer()
+        return keep
 
     def shutdown(self):
         self.set_enabled(False)
