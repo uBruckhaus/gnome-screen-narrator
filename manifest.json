@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "ubruckhaus.simple-reader",
   "name": "Screen Narrator",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "author": "Uwe Bruckhaus",
   "license": "MIT",
   "description": "Read any window, PDF or Kindle page aloud in 51 languages, optionally translated first (offline or via llama.cpp, LM Studio, Ollama). Local OCR and voices.",
