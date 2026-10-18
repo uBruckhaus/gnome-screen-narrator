@@ -39,10 +39,11 @@ Ui.BarWidget {
     function ask() { write(root.legacy ? '{"command":"status"}\n' : '{"command":"watch","keep":true}\n'); flush() }
     onConnectionStateChanged: if (connected) ask()
     // The connection stays open while the service runs; it only ends when the service stops.
+    // Quickshell sets connected back to false by itself; setting it here, inside the error
+    // signal of a closed connection, makes quickshell 0.3.2 free the socket twice and crash.
     onError: {
       if (!root.legacy) root.reading = false
       else if (++root.legacyPolls % 6 === 0) root.legacy = false
-      connected = false
     }
     parser: SplitParser {
       onRead: function(line) {
