@@ -28,6 +28,8 @@ gnome-shell --headless --wayland --no-x11 --virtual-monitor ${MONITOR:-1920x1080
 SHELL_PID=$!
 sleep 8
 export WAYLAND_DISPLAY=sn-test
+# No X fallback: an app that loses the test shell must not open in the real session.
+unset DISPLAY
 . "$ROOT/tools/scenarios/$SCENARIO.sh"
 kill $SHELL_PID 2>/dev/null; sleep 1
 grep -v -e Gtk-WARNING -e "^$" "$T/shell.log" | grep -i -e "narrator\|js\|error\|exception" | head -${LINES_MAX:-80}
