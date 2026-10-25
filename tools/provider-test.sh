@@ -1,8 +1,12 @@
 #!/bin/bash
-# The speech-server flow end to end, without GNOME: the real reader (from the repo) with a
-# throwaway HOME and runtime folder, a stand-in OpenAI-compatible speech server on localhost,
-# a stand-in mpv, and the requests the settings window sends through bridge.py.
-# Usage: PYTHON=/path/to/venv/bin/python tools/online-provider-test.sh   (a Python with PySide6)
+# The settings window's provider flows end to end, without GNOME: the real reader (from the
+# repo) with a throwaway HOME and runtime folder, a stand-in mpv, and the requests the
+# settings window sends through bridge.py:
+#   - a speech server (a stand-in OpenAI-compatible server on localhost): find, test, use;
+#   - a Qwen voice: test and use with a stand-in runner, or with the real llama-tts and
+#     models when QWEN_RUNNER, QWEN_MODEL and QWEN_PROJECTION are set (a tone as the speaker);
+#   - a translation server token: applied, remembered, cleared.
+# Usage: PYTHON=/path/to/venv/bin/python tools/provider-test.sh   (a Python with PySide6)
 set -u
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
 BACKEND=$ROOT/screen-narrator@ubruckhaus.github.io/backend
@@ -52,5 +56,39 @@ echo "use: $(ask "{\"command\": \"use-provider\", \"settings\": $CANDIDATE, \"to
 echo "saved token file mode: $(stat -c %a "$HOME/.config/kindle-reader/speech-credentials.json" 2>/dev/null)"
 echo "back to local: $(ask '{"command": "configure", "settings": {"provider": "Local"}}' | field "d.get('error') or d['settings']['provider']")"
 echo "--- server saw:"; cat "$T/requests.log"
+
+# Qwen: a speaker recording (a tone) and, unless the real files are given, a stand-in runner
+# that writes a WAV where the reader asks (-o).
+python3 -c 'import sys, wave, math
+with wave.open(sys.argv[1], "wb") as w:
+    w.setnchannels(1); w.setsampwidth(2); w.setframerate(24000)
+    w.writeframes(b"".join(int(8000 * math.sin(i / 12)).to_bytes(2, "little", signed=True) for i in range(72000)))' "$T/speaker.wav"
+if [ -z "${QWEN_RUNNER:-}" ]; then
+    cat > "$T/bin/llama-tts" <<'SH'
+#!/bin/sh
+echo "$@" > "$(dirname "$0")/../qwen-args"
+while [ $# -gt 0 ]; do [ "$1" = -o ] && cp "$(dirname "$0")/../speaker.wav" "$2"; shift; done
+SH
+    chmod +x "$T/bin/llama-tts"
+    QWEN_RUNNER=$T/bin/llama-tts QWEN_MODEL=$T/speaker.wav QWEN_PROJECTION=$T/speaker.wav
+fi
+QWEN="{\"provider\": \"Local\", \"voice\": \"qwen-custom\", \"qwen_runner\": \"$QWEN_RUNNER\", \"qwen_model\": \"$QWEN_MODEL\", \"qwen_projection\": \"$QWEN_PROJECTION\", \"qwen_speaker\": \"$T/speaker.wav\"}"
+ask '{"command": "configure", "settings": {"language": "en"}}' >/dev/null
+echo "qwen use before test (must fail): $(ask "{\"command\": \"use-provider\", \"settings\": $QWEN}" | field "d.get('error')")"
+echo "qwen test: $(ask "{\"command\": \"test-provider\", \"settings\": $QWEN}" | field "d.get('error') or d['status']")"
+for _ in $(seq ${QWEN_WAIT:-10}); do
+    status=$(ask '{"command": "status"}' | field "d['status']")
+    case "$status" in "Voice test complete"|*failed*) break ;; esac
+    sleep 1
+done
+echo "qwen after test: $status"
+[ -f "$T/qwen-args" ] && echo "qwen runner got: $(cat "$T/qwen-args")"
+echo "qwen use: $(ask "{\"command\": \"use-provider\", \"settings\": $QWEN}" | field "(d.get('error'), d['settings']['voice'], d['can_start'])")"
+
+# Translation server token.
+echo "translator token: $(ask '{"command": "configure-translator-token", "token": "tsecret", "remember_token": true}' | field "(d.get('error'), d['translator_key_ready'])")"
+echo "translation token file mode: $(stat -c %a "$HOME/.config/kindle-reader/translation-credentials.json" 2>/dev/null)"
+echo "translator token cleared: $(ask '{"command": "configure-translator-token", "token": "", "remember_token": false}' | field "d['translator_key_ready']")"
+echo "kokoro check on a language without Kokoro (must fail): $(ask '{"command": "check-kokoro-updates", "language": "nl"}' | field "d.get('error')")"
 kill $READER $SERVER 2>/dev/null; wait 2>/dev/null
 rm -rf "$T"

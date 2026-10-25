@@ -2,6 +2,7 @@
 // groups of the Omarchy popup). Every change goes to the reader at once through the bridge.
 
 import Adw from 'gi://Adw';
+import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import Gtk from 'gi://Gtk';
 
@@ -15,6 +16,16 @@ const SERVERS = [
     ['Ollama', 'http://127.0.0.1:11434/v1'],
 ];
 const OFFLINE = 'Offline translator (NLLB-200)';
+// Qwen speaks with a llama.cpp TTS runner, two model files and a recording of the speaker.
+const QWEN_FILES = [
+    ['qwen_runner', 'Speech runner', 'The llama.cpp TTS program (llama-tts)'],
+    ['qwen_model', 'Voice model', 'The Qwen3-TTS 1.7B model (.gguf)'],
+    ['qwen_projection', 'Audio model', 'Its matching audio projection (mmproj-….gguf)'],
+    ['qwen_speaker', 'Speaker recording', 'A clear recording of the voice to speak with (.wav)'],
+];
+const QWEN_LANGUAGES = ['zh', 'en', 'ja', 'ko', 'de', 'fr', 'ru', 'pt', 'es', 'it'];
+
+Gio._promisify(Gtk.FileDialog.prototype, 'open', 'open_finish');
 
 // A combo row over (value, label) choices that can change while the window is open.
 class Choice {
@@ -66,6 +77,7 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         page.add(this._statusGroup());
         page.add(this._readingGroup());
         page.add(this._voiceGroup());
+        page.add(this._qwenGroup());
         page.add(this._serverGroup());
         page.add(this._translationGroup());
 
@@ -174,7 +186,74 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
                 this._send({command: 'setup', language});
         }));
         group.add(this._install.row);
+
+        // Newer Kokoro models for the spoken language: checked on request, never installed on their own.
+        this._kokoroRow = new Adw.ActionRow({title: 'Kokoro model updates', subtitle_lines: 0});
+        this._kokoroCheck = button('Check', () => this._send({command: 'check-kokoro-updates', language: this._speechLanguage()}), ['flat']);
+        this._kokoroUpdate = button('Update', () => this._send({command: 'update-kokoro', language: this._speechLanguage()}),
+            ['suggested-action']);
+        this._kokoroCancel = button('Cancel', () => this._send({command: 'cancel-kokoro-install'}));
+        for (const b of [this._kokoroCheck, this._kokoroUpdate, this._kokoroCancel])
+            this._kokoroRow.add_suffix(b);
+        group.add(this._kokoroRow);
         return group;
+    }
+
+    _speechLanguage() {
+        const settings = this._state.settings ?? {};
+        return settings.translate_to || settings.language;
+    }
+
+    // A Qwen voice: like a speech server it is tested first, then used.
+    _qwenGroup() {
+        const group = new Adw.PreferencesGroup({title: 'Qwen voice',
+            description: 'Qwen3-TTS through llama.cpp speaks with the voice of any recording you choose. ' +
+                'It needs the files below; nothing is downloaded for it.'});
+        this._qwenPaths = {};
+        this._qwenRows = {};
+        for (const [key, title, help] of QWEN_FILES) {
+            const row = new Adw.ActionRow({title, subtitle: help, subtitle_lines: 0});
+            row.add_suffix(button('Choose…', () => this._chooseFile(key, title)));
+            this._qwenRows[key] = [row, help];
+            group.add(row);
+        }
+        this._qwenTest = new Adw.ActionRow({title: 'Test the voice, then use it', subtitle_lines: 0});
+        this._qwenTest.add_suffix(button('Test', () => this._send({command: 'test-provider', settings: this._qwenCandidate()})));
+        this._qwenUse = button('Use', () => this._send({command: 'use-provider', settings: this._qwenCandidate()}),
+            ['suggested-action']);
+        this._qwenTest.add_suffix(this._qwenUse);
+        group.add(this._qwenTest);
+        return group;
+    }
+
+    _qwenCandidate() {
+        return {provider: 'Local', voice: 'qwen-custom', ...this._qwenPaths};
+    }
+
+    async _chooseFile(key, title) {
+        const current = this._qwenPaths[key];
+        const dialog = new Gtk.FileDialog({title, modal: true});
+        if (current)
+            dialog.initial_file = Gio.File.new_for_path(current);
+        try {
+            const file = await dialog.open(this._window, null);
+            this._qwenPaths[key] = file.get_path();
+            this._syncQwen();
+        } catch {
+            // Cancelled.
+        }
+    }
+
+    _syncQwen() {
+        for (const [key, [row, help]] of Object.entries(this._qwenRows)) {
+            const path = this._qwenPaths[key];
+            const missing = path && !GLib.file_test(path, GLib.FileTest.IS_REGULAR) ? ' · not found' : '';
+            row.subtitle = path ? `${path.split('/').pop()}${missing} · ${path}` : help;
+        }
+        const candidate = this._qwenCandidate();
+        const verified = this._state.verified_provider ?? {};
+        this._qwenUse.sensitive = QWEN_FILES.every(([key]) => candidate[key]) &&
+            Object.entries(candidate).every(([key, value]) => verified[key] === value);
     }
 
     // An OpenAI-compatible speech server instead of the voices on this computer. Like on
@@ -274,6 +353,23 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         this._offlineRow.add_suffix(this._offlineButton);
         group.add(this._offlineRow);
 
+        this._translatorToken = new Adw.PasswordEntryRow({title: 'API key / token, only for servers that need one',
+            show_apply_button: true});
+        this._translatorToken.connect('apply', () => {
+            this._send({command: 'configure-translator-token', token: this._translatorToken.text,
+                remember_token: this._translatorRemember.active});
+            this._translatorToken.text = '';
+        });
+        group.add(this._translatorToken);
+        this._translatorRemember = new Adw.SwitchRow({title: 'Remember the token on this device',
+            subtitle: 'Saved in an owner-only plain-text file, for this server only'});
+        group.add(this._translatorRemember);
+        this._translatorClear = new Adw.ActionRow({title: 'Token in use for the translation server'});
+        this._translatorClear.add_suffix(button('Clear', () => this._send({
+            command: 'configure-translator-token', token: '', remember_token: false,
+        }), ['flat']));
+        group.add(this._translatorClear);
+
         this._testRow = new Adw.ActionRow({title: 'Test translation', subtitle_lines: 0});
         this._testRow.add_suffix(button('Test', () => this._send({command: 'test-translation'})));
         group.add(this._testRow);
@@ -331,10 +427,37 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         this._offlineButton.label = state.installing_translator ? 'Cancel' : 'Install';
         this._testRow.visible = Boolean(target);
         this._testRow.subtitle = state.translation_status ?? '';
+        const server = Boolean(target) && !offline;
+        this._translatorToken.visible = server;
+        this._translatorRemember.visible = server;
+        this._translatorClear.visible = server && Boolean(state.translator_key_ready);
+        if (!this._translatorRememberFilled && state.settings) {
+            this._translatorRememberFilled = true;
+            this._translatorRemember.active = Boolean(settings.remember_translator_token);
+        }
+        this._translatorToken.title = state.translator_key_ready
+            ? 'API key / token (one is in use; enter a new one to replace it)'
+            : 'API key / token, only for servers that need one';
+
+        const spoken = target || settings.language;
+        const kokoro = state.kokoro_languages ?? {};
+        const update = (state.kokoro_updates ?? {})[spoken] ?? {};
+        this._kokoroRow.visible = spoken in kokoro;
+        this._kokoroRow.subtitle = state.kokoro_checking ? 'Checking the official Kokoro model sources…'
+            : state.installing_kokoro ? (state.provider_status || 'Updating the Kokoro model…')
+                : update.message || 'Looks for newer verified models of this language\'s Kokoro voice';
+        this._kokoroCheck.visible = !state.installing_kokoro;
+        this._kokoroCheck.sensitive = !state.kokoro_checking && !state.enabled;
+        this._kokoroUpdate.visible = update.available === true && !state.installing_kokoro;
+        this._kokoroCancel.visible = Boolean(state.installing_kokoro);
 
         if (!this._serverFilled && state.settings) {
             // The fields start from the server in use (or the last one tried) and are then the user's.
             this._serverFilled = true;
+            for (const [key] of QWEN_FILES) {
+                if (settings[key])
+                    this._qwenPaths[key] = settings[key];
+            }
             this._endpointRow.text = settings.online_endpoint ?? 'https://api.openai.com/v1';
             this._modelRow.text = settings.online_model ?? '';
             this._voiceIdRow.text = settings.online_voice ?? 'alloy';
@@ -354,9 +477,16 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         this._clearToken.visible = Boolean(state.key_ready);
         this._syncServer();
 
+        const qwenSpeaks = QWEN_LANGUAGES.includes(spoken);
+        this._qwenTest.subtitle = !qwenSpeaks
+            ? `Qwen does not speak ${languages.find(([v]) => v === spoken)?.[1] ?? spoken}`
+            : state.testing_voice ? 'Testing the voice…' : state.provider_status || '';
+        this._syncQwen();
+
         for (const row of [this._language.row, this._speed, ...Object.values(this._switches), this._areaRow,
             this._voice.row, this._output.row, this._serverActive, this._endpointRow, this._modelRow, this._voiceIdRow,
-            this._tokenRow, this._rememberRow, this._serverTest, this._speakIn.row, this._translator.row, this._model.row, this._testRow])
+            this._tokenRow, this._rememberRow, this._serverTest, this._qwenTest, ...Object.values(this._qwenRows).map(([r]) => r),
+            this._kokoroRow, this._translatorToken, this._translatorRemember, this._speakIn.row, this._translator.row, this._model.row, this._testRow])
             row.sensitive = ready;
         this._install.row.sensitive = !state.setup_busy;
         this._syncing = false;

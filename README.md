@@ -44,7 +44,8 @@ Choose **Speak in**, then a translator:
 | Ollama | `ollama serve` (port 11434) | Ollama |
 
 Then **Model → Refresh** and pick a chat/instruct model; **Test** translates a sample
-sentence. The offline translator (NLLB-200 1.3B, about 1.4 GB) needs no server; its license
+sentence. A server that needs a key gets it in **API key / token** (kept in memory, or with
+**Remember the token** in the owner-only file `~/.config/kindle-reader/translation-credentials.json`). The offline translator (NLLB-200 1.3B, about 1.4 GB) needs no server; its license
 is CC-BY-NC 4.0, non-commercial use only.
 
 ## Speech servers
@@ -60,6 +61,21 @@ Remote servers must use HTTPS and receive the text being read (and may charge fo
 plain HTTP is allowed only on this computer. A key is kept in memory unless **Remember the
 token** is on: then it is stored, bound to that server, in the owner-only file
 `~/.config/kindle-reader/speech-credentials.json`.
+
+## Qwen voice
+
+Qwen3-TTS speaks with the voice of a recording you choose, through llama.cpp. In **Settings
+→ Qwen voice** choose the llama.cpp TTS program (`llama-tts`), the Qwen3-TTS 1.7B model, its
+audio projection (`mmproj-….gguf`) and a clear `.wav` recording of the speaker, then **Test**
+and **Use**. Nothing is downloaded for it. Qwen speaks Chinese, English, Japanese, Korean,
+German, French, Russian, Portuguese, Spanish and Italian.
+
+## Kokoro model updates
+
+**Settings → Voice → Kokoro model updates → Check** compares the installed Kokoro model of the
+spoken language with the official sources (SHA256). When a newer verified model exists,
+**Update** downloads and tests it before it is used; the old one stays if anything fails.
+Updates are never installed on their own.
 
 ## What setup installs
 
@@ -95,7 +111,7 @@ tools/headless-test.sh menu          # isolated headless shell: screenshots of t
 tools/headless-test.sh desktop       # the D-Bus service the reader uses
 tools/headless-test.sh capture       # a screenshot and a key through the installed helper, and refusals
 MONITOR=1600x2500 tools/headless-test.sh prefs   # the whole settings window in one screenshot
-PYTHON=<python with PySide6> tools/online-provider-test.sh   # speech server: find, test, use (real reader, fake server)
+PYTHON=<python with PySide6> tools/provider-test.sh   # speech server, Qwen voice, translation token (real reader)
 cd screen-narrator@ubruckhaus.github.io/backend
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s reader -p 'test_*.py'   # needs PySide6, numpy
 PYTHONPATH=.:reader python -m unittest test_setup
