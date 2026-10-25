@@ -1526,9 +1526,18 @@ class Reader(QObject):
         self.verified_provider = None
         self.provider_status = 'Token applied' if token else 'Token cleared'
 
-    def refresh_online_models(self):
+    def refresh_online_models(self, endpoint=None, token=None):
+        """The models of the active speech server, or of `endpoint` (a server being set up, with
+        its `token`; the active token only goes to the active server)."""
         if self.enabled:
             raise ValueError("Stop reading before refreshing speech models")
+        if token is not None and (not isinstance(token, str) or any(c in token for c in '\n\r') or len(token) > 16384):
+            raise ValueError('Invalid provider token')
+        settings = self.settings
+        if endpoint:
+            settings = dict(self.settings, online_endpoint=endpoint_url(endpoint))
+        if not token:
+            token = self.online_token if settings['online_endpoint'] == self.settings['online_endpoint'] else ''
         if self.models_loading:
             return
         self.models_loading = True
@@ -1544,7 +1553,7 @@ class Reader(QObject):
             except (ValueError, KeyError, TypeError):
                 self.provider_status = 'Cannot read provider model list.'
         Task(self, [sys.executable, Path(__file__).with_name('online_provider.py')], done, timeout=70,
-             stdin_data=json.dumps({'action': 'models', 'settings': self.settings, 'token': self.online_token}))
+             stdin_data=json.dumps({'action': 'models', 'settings': settings, 'token': token}))
 
     def kokoro_install_status(self):
         if self.installing_kokoro:
@@ -1732,7 +1741,7 @@ class Reader(QObject):
             elif command == 'speed': self.set_speed(request['value'])
             elif command == 'configure': self.configure_settings(request['settings'])
             elif command == 'configure-token': self.configure_token(request.get('token', ''), request.get('remember_token', False))
-            elif command == 'online-models': self.refresh_online_models()
+            elif command == 'online-models': self.refresh_online_models(request.get('endpoint'), request.get('token'))
             elif command == 'install-kokoro': self.install_kokoro(request.get('language', speech_language(self.settings)))
             elif command == 'check-kokoro-updates': self.check_kokoro_updates(request.get('language', self.settings['language']))
             elif command == 'update-kokoro': self.check_kokoro_updates(request.get('language', self.settings['language']), update=True)
@@ -1804,6 +1813,11 @@ def main():
     app.aboutToQuit.connect(reader.shutdown)
     signal.signal(signal.SIGTERM, lambda *_: app.quit())
     signal.signal(signal.SIGINT, lambda *_: app.quit())
+    # Python runs signal handlers only between its own steps: wake it now and then, so
+    # `systemctl --user stop` ends the reader at once instead of after the stop timeout.
+    wake = QTimer()
+    wake.timeout.connect(lambda: None)
+    wake.start(300)
     return app.exec()
 
 

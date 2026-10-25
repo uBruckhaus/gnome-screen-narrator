@@ -23,7 +23,7 @@ gsettings set org.gnome.shell welcome-dialog-last-shown-version "$(gnome-shell -
 SCENARIO=${1:-menu}
 [ -f "$ROOT/tools/scenarios/$SCENARIO.pre.sh" ] && . "$ROOT/tools/scenarios/$SCENARIO.pre.sh"
 
-gnome-shell --headless --wayland --no-x11 --virtual-monitor 1920x1080 \
+gnome-shell --headless --wayland --no-x11 --virtual-monitor ${MONITOR:-1920x1080} \
     --wayland-display sn-test >"$T/shell.log" 2>&1 &
 SHELL_PID=$!
 sleep 8

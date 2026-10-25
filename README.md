@@ -47,6 +47,20 @@ Then **Model → Refresh** and pick a chat/instruct model; **Test** translates a
 sentence. The offline translator (NLLB-200 1.3B, about 1.4 GB) needs no server; its license
 is CC-BY-NC 4.0, non-commercial use only.
 
+## Speech servers
+
+Instead of the voices on this computer, an OpenAI-compatible speech server can speak
+(`/v1/audio/speech` with WAV output: OpenAI, or a local server such as Kokoro-FastAPI or
+LocalAI). In **Settings → Speech server** enter the address, the speech model (**Find
+models** lists what the server offers; chat models cannot speak), the voice and, if the
+server needs one, an API key. **Test** speaks a sample sentence; **Use** is possible only
+for exactly what was tested. **Use voices on this computer** switches back.
+
+Remote servers must use HTTPS and receive the text being read (and may charge for it);
+plain HTTP is allowed only on this computer. A key is kept in memory unless **Remember the
+token** is on: then it is stored, bound to that server, in the owner-only file
+`~/.config/kindle-reader/speech-credentials.json`.
+
 ## What setup installs
 
 Nothing is installed with the extension. **Set up automatically** / **Install** runs
@@ -79,7 +93,9 @@ your computer unless you choose a remote translation or speech server.
 tools/build.sh                       # dist/screen-narrator@ubruckhaus.github.io.shell-extension.zip
 tools/headless-test.sh menu          # isolated headless shell: screenshots of the menu and settings
 tools/headless-test.sh desktop       # the D-Bus service the reader uses
-tools/headless-test.sh capture       # a screenshot through the installed helper, and refusals
+tools/headless-test.sh capture       # a screenshot and a key through the installed helper, and refusals
+MONITOR=1600x2500 tools/headless-test.sh prefs   # the whole settings window in one screenshot
+PYTHON=<python with PySide6> tools/online-provider-test.sh   # speech server: find, test, use (real reader, fake server)
 cd screen-narrator@ubruckhaus.github.io/backend
 QT_QPA_PLATFORM=offscreen python -m unittest discover -s reader -p 'test_*.py'   # needs PySide6, numpy
 PYTHONPATH=.:reader python -m unittest test_setup

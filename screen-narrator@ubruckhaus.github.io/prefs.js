@@ -66,6 +66,7 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         page.add(this._statusGroup());
         page.add(this._readingGroup());
         page.add(this._voiceGroup());
+        page.add(this._serverGroup());
         page.add(this._translationGroup());
 
         this._refresh();
@@ -176,6 +177,76 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         return group;
     }
 
+    // An OpenAI-compatible speech server instead of the voices on this computer. Like on
+    // Omarchy it is tested first (a sample sentence through the audio output), then used.
+    _serverGroup() {
+        const group = new Adw.PreferencesGroup({title: 'Speech server',
+            description: 'An OpenAI-compatible server with /v1/audio/speech and WAV output. A remote server ' +
+                'receives the text being read and may charge for speech; a server on this computer keeps it here.'});
+        this._serverActive = new Adw.ActionRow({title: 'In use', subtitle_lines: 0});
+        this._localButton = button('Use voices on this computer', () => this._configure({provider: 'Local'}));
+        this._serverActive.add_suffix(this._localButton);
+        group.add(this._serverActive);
+
+        this._endpointRow = new Adw.EntryRow({title: 'Server address (https://…/v1, or http://localhost)'});
+        group.add(this._endpointRow);
+        this._modelRow = new Adw.EntryRow({title: 'Speech model'});
+        this._modelRow.add_suffix(button('Find models', () => this._send({
+            command: 'online-models', endpoint: this._endpointRow.text.trim(), token: this._tokenRow.text || null,
+        }), ['flat']));
+        group.add(this._modelRow);
+        this._found = new Choice({title: 'Models on the server', subtitle: 'Chat models cannot speak: choose a speech model',
+            enable_search: true}, model => {
+            this._modelRow.text = model;
+        });
+        group.add(this._found.row);
+        this._voiceIdRow = new Adw.EntryRow({title: 'Voice'});
+        group.add(this._voiceIdRow);
+        this._tokenRow = new Adw.PasswordEntryRow({title: 'API key / token, if the server needs one'});
+        group.add(this._tokenRow);
+        this._rememberRow = new Adw.SwitchRow({title: 'Remember the token on this device',
+            subtitle: 'Saved in an owner-only plain-text file'});
+        group.add(this._rememberRow);
+
+        this._serverTest = new Adw.ActionRow({title: 'Test the voice, then use the server', subtitle_lines: 0});
+        this._serverTest.add_suffix(button('Test', () => {
+            this._testedToken = this._tokenRow.text;
+            this._send({command: 'test-provider', settings: this._candidate(), token: this._tokenRow.text || null});
+        }));
+        this._useButton = button('Use', () => this._send({
+            command: 'use-provider', settings: this._candidate(), token: this._tokenRow.text || null,
+            remember_token: this._rememberRow.active,
+        }), ['suggested-action']);
+        this._serverTest.add_suffix(this._useButton);
+        group.add(this._serverTest);
+
+        this._clearToken = new Adw.ActionRow({title: 'Saved token of the server in use'});
+        this._clearToken.add_suffix(button('Clear', () => this._send({command: 'configure-token', token: '', remember_token: false}), ['flat']));
+        group.add(this._clearToken);
+
+        for (const row of [this._endpointRow, this._modelRow, this._voiceIdRow, this._tokenRow])
+            row.connect('changed', () => this._syncServer());
+        return group;
+    }
+
+    _candidate() {
+        return {
+            provider: 'Online',
+            online_endpoint: this._endpointRow.text.trim(),
+            online_model: this._modelRow.text.trim(),
+            online_voice: this._voiceIdRow.text.trim(),
+        };
+    }
+
+    // Use only what was tested: the same server, model, voice and token.
+    _syncServer() {
+        const candidate = this._candidate();
+        const verified = this._state.verified_provider ?? {};
+        const ready = Boolean(candidate.online_endpoint && candidate.online_model && candidate.online_voice);
+        this._useButton.sensitive = ready && this._tokenRow.text === (this._testedToken ?? '') &&
+            Object.entries(candidate).every(([key, value]) => verified[key] === value);
+    }
+
     _translationGroup() {
         const group = new Adw.PreferencesGroup({title: 'Translation',
             description: 'Read the text in one language and hear it in another'});
@@ -235,9 +306,11 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
             : kindle ? `Kindle (${Math.round(kindle[2] * 100)}% × ${Math.round(kindle[3] * 100)}%)` : 'The whole active window';
         this._areaReset.visible = Boolean(state.custom_area || kindle);
 
+        const online = settings.provider === 'Online';
         const voices = (state.voices ?? []).map(v => [v.value, v.label]);
-        this._voice.set(voices, settings.voice);
-        this._voice.row.subtitle = voices.length ? '' : 'No voice is installed for this language yet';
+        this._voice.set(voices, online ? null : settings.voice);
+        this._voice.row.subtitle = online ? 'A speech server is in use; choosing a voice here switches back'
+            : voices.length ? '' : 'No voice is installed for this language yet';
         this._output.set((state.audio_outputs ?? []).map(o => [o.value, o.label]), settings.audio_output);
         this._install.set(languages, this._installLanguage ?? settings.language);
 
@@ -259,8 +332,31 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
         this._testRow.visible = Boolean(target);
         this._testRow.subtitle = state.translation_status ?? '';
 
+        if (!this._serverFilled && state.settings) {
+            // The fields start from the server in use (or the last one tried) and are then the user's.
+            this._serverFilled = true;
+            this._endpointRow.text = settings.online_endpoint ?? 'https://api.openai.com/v1';
+            this._modelRow.text = settings.online_model ?? '';
+            this._voiceIdRow.text = settings.online_voice ?? 'alloy';
+            this._rememberRow.active = Boolean(settings.remember_token);
+        }
+        this._serverActive.subtitle = online
+            ? `Speech server · ${settings.online_endpoint} · ${settings.online_model} / ${settings.online_voice}`
+            : 'Voices on this computer (Kokoro or Piper)';
+        this._localButton.visible = online;
+        const speechModels = state.online_models ?? [];
+        this._found.set(speechModels.map(m => [m, m]), this._modelRow.text.trim());
+        this._found.row.visible = speechModels.length > 0;
+        this._tokenRow.title = state.key_ready && this._endpointRow.text.trim() === settings.online_endpoint
+            ? 'API key / token (the saved one is used; type to replace it)' : 'API key / token, if the server needs one';
+        this._serverTest.subtitle = state.models_loading ? 'Asking the server for its models…'
+            : state.testing_voice ? 'Testing the voice…' : state.provider_status || '';
+        this._clearToken.visible = Boolean(state.key_ready);
+        this._syncServer();
+
         for (const row of [this._language.row, this._speed, ...Object.values(this._switches), this._areaRow,
-            this._voice.row, this._output.row, this._speakIn.row, this._translator.row, this._model.row, this._testRow])
+            this._voice.row, this._output.row, this._serverActive, this._endpointRow, this._modelRow, this._voiceIdRow,
+            this._tokenRow, this._rememberRow, this._serverTest, this._speakIn.row, this._translator.row, this._model.row, this._testRow])
             row.sensitive = ready;
         this._install.row.sensitive = !state.setup_busy;
         this._syncing = false;
