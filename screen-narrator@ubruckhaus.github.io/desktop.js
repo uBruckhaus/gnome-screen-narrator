@@ -65,7 +65,10 @@ export class DesktopService {
         this._dbus.export(Gio.DBus.session, PATH);
         this._nameId = Gio.bus_own_name_on_connection(Gio.DBus.session, NAME,
             Gio.BusNameOwnerFlags.NONE, null, null);
-        this._keyboard = null;
+        // Made up front: Mutter drops the keys of a virtual keyboard created right before
+        // them, which lost the first page turn after every shell start.
+        this._keyboard = global.stage.context.get_backend().get_default_seat()
+            .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
         this._selector = null;
     }
 
@@ -139,8 +142,6 @@ export class DesktopService {
         const ok = Boolean(window && address(window) === target && keyval && await this._reading() &&
             await this._fromReader(invocation));
         if (ok) {
-            this._keyboard ??= global.stage.context.get_backend().get_default_seat()
-                .create_virtual_device(Clutter.InputDeviceType.KEYBOARD_DEVICE);
             const time = GLib.get_monotonic_time();
             this._keyboard.notify_keyval(time, keyval, Clutter.KeyState.PRESSED);
             this._keyboard.notify_keyval(time + 1000, keyval, Clutter.KeyState.RELEASED);

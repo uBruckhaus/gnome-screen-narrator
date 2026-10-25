@@ -110,6 +110,7 @@ tools/build.sh                       # dist/screen-narrator@ubruckhaus.github.io
 tools/headless-test.sh menu          # isolated headless shell: screenshots of the menu and settings
 tools/headless-test.sh desktop       # the D-Bus service the reader uses
 tools/headless-test.sh capture       # a screenshot and a key through the installed helper, and refusals
+tools/headless-test.sh keys          # page-turn keys reach the window, the first one too
 MONITOR=1600x2500 tools/headless-test.sh prefs   # the whole settings window in one screenshot
 PYTHON=<python with PySide6> tools/provider-test.sh   # speech server, Qwen voice, translation token (real reader)
 cd screen-narrator@ubruckhaus.github.io/backend
