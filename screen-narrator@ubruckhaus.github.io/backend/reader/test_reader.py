@@ -26,12 +26,13 @@ class ReaderTests(unittest.TestCase):
     def test_punctuation_only_chunks_do_not_reach_piper(self):
         self.assertEqual(chunks('»«\n\nHallo Welt.\n\n…'), ['Hallo Welt.'])
 
-    def test_failed_page_turn_is_reported(self):
+    def test_page_turn_for_a_hidden_book_waits(self):
         from reader import Reader
-        subject = SimpleNamespace(enabled=True, paused=False, fail=Mock(), scan=Mock())
+        subject = SimpleNamespace(enabled=True, paused=False, fail=Mock(), scan=Mock(), update=Mock())
         with patch('reader.QTimer.singleShot') as timer:
-            Reader.page_turn_sent(subject, 1, '', 'Keyboard unavailable')
-        subject.fail.assert_called_once()
+            Reader.page_turn_sent(subject, 1, '', 'The reading window is not on screen')
+        subject.fail.assert_not_called()
+        subject.update.assert_called_once_with('Waiting for the reading window')
         timer.assert_not_called()
 
     def test_error_notification_does_not_set_tray_attention(self):
@@ -83,12 +84,13 @@ class ReaderTests(unittest.TestCase):
         subject = SimpleNamespace(
             enabled=True, paused=False, scanning=False, menu=Mock(), dialog=None,
             settings={'follow': True}, last_text='Old page', got_window=Mock(),
-            is_speaking=lambda: True)
+            is_speaking=lambda: True, target='0x123')
         subject.menu.isVisible.return_value = False
         with patch('reader.Task') as task:
             Reader.scan(subject)
         self.assertTrue(subject.scanning)
         self.assertIs(task.call_args.args[2], subject.got_window)
+        self.assertEqual(task.call_args.args[1][-2:], ['window', '0x123'])
 
     def test_cancelling_ocr_releases_scan_flag(self):
         from reader import Reader
@@ -202,67 +204,85 @@ class ReaderTests(unittest.TestCase):
 if __name__ == '__main__':
     unittest.main()
 
-class FocusRegressionTests(unittest.TestCase):
-    def subject(self):
-        return SimpleNamespace(target='0x123', pending_window=None, epoch=7,
+class PinnedWindowTests(unittest.TestCase):
+    """The window reading starts in stays the book, wherever the focus goes."""
+    def subject(self, target='0x123'):
+        return SimpleNamespace(target=target, epoch=7, enabled=True, paused=False,
             scanning=True, scan=Mock(), stop_speech=Mock(), playing_file=None, captured=Mock(),
-            capture_window_geometry=([10, 20], [800, 600]),
-            target_title='Kindle', target_class='kindle',
-            custom_area=(10, 20, 800, 600), overlay=Mock())
+            capture_window_geometry=([10, 20], [800, 600]), update=Mock(), set_enabled=Mock(),
+            target_title='Kindle', target_class='kindle', settings={'kindle_crop': False},
+            custom_area=None, overlay=Mock(last_payload=None), is_kindle_target=lambda: False,
+            image_candidate=None, ocr_image=None, last_text='', candidate='')
 
-    def window(self, address):
+    def window(self, address, **extra):
         import json
-        return json.dumps(dict(address=address, pid=99999, at=[10, 20],
-                               size=[800, 600], title='Kindle', **{'class': 'kindle'}))
+        return json.dumps(dict(address=address, pid=99999, at=[10, 20], size=[800, 600],
+                               title='Kindle', **{'class': 'kindle'}, **extra))
 
-    def test_single_focus_change_keeps_current_audio(self):
+    def test_unpinned_reader_takes_the_focused_window(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, scanning=False, menu=Mock(),
+            settings={'follow': True}, last_text='', got_window=Mock(), target='')
+        subject.menu.isVisible.return_value = False
+        with patch('reader.Task') as task:
+            Reader.scan(subject)
+        self.assertEqual(task.call_args.args[1][-1], 'active-window')
+
+    def test_focus_elsewhere_keeps_reading_the_book(self):
         from reader import Reader
         subject = self.subject()
-        with patch('reader.QTimer.singleShot') as timer, patch('reader.time.monotonic', return_value=10):
-            Reader.got_window(subject, 0, self.window('0x456'), '')
+        with patch('reader.Task') as task:
+            Reader.got_window(subject, 0, self.window('0x123', focused=False, shown=True), '')
         subject.stop_speech.assert_not_called()
         self.assertEqual(subject.target, '0x123')
-        self.assertFalse(subject.scanning)
-        self.assertEqual(timer.call_args.args[0], 350)
+        self.assertEqual(task.call_args.args[1][2:4], ['capture-window', '0x123'])
 
-    def test_returning_focus_discards_pending_change(self):
+    def test_book_off_screen_is_not_captured(self):
         from reader import Reader
         subject = self.subject()
-        subject.pending_window = ('0x456', 10)
-        with patch('reader.Task'):
-            Reader.got_window(subject, 0, self.window('0x123'), '')
-        self.assertIsNone(subject.pending_window)
+        with patch('reader.Task') as task:
+            Reader.got_window(subject, 0, self.window('0x123', focused=False, shown=False), '')
+        task.assert_not_called()
         subject.stop_speech.assert_not_called()
+        self.assertFalse(subject.scanning)
 
-    def test_confirmed_change_switches_window(self):
+    def test_closed_book_stops_reading(self):
         from reader import Reader
         subject = self.subject()
-        subject.pending_window = ('0x456', 10)
-        subject.update = Mock()
-        with patch('reader.Task'), patch('reader.time.monotonic', return_value=10.5):
-            Reader.got_window(subject, 0, self.window('0x456'), '')
-        subject.stop_speech.assert_called_once()
-        self.assertEqual(subject.target, '0x456')
+        with patch('reader.Task') as task, patch('reader.desktop_notify'):
+            Reader.got_window(subject, 0, '{}', '')
+        task.assert_not_called()
+        subject.set_enabled.assert_called_once_with(False)
 
-    def test_page_turn_does_not_type_into_different_window(self):
+    def test_settings_window_is_not_pinned(self):
         from reader import Reader
-        subject = SimpleNamespace(enabled=True, paused=False, epoch=7,
-            target='0x123', scan=Mock(), update=Mock(), page_turn_sent=Mock())
+        import json
+        subject = self.subject(target='')
+        settings = json.dumps(dict(address='0x9', pid=1, at=[0, 0], size=[800, 600], title='Screen Narrator',
+                                   **{'class': 'org.gnome.Shell.Extensions'}))
+        with patch('reader.Task') as task:
+            Reader.got_window(subject, 0, settings, '')
+        task.assert_not_called()
+        self.assertEqual(subject.target, '')
+
+    def test_waiting_for_the_book_scans_with_new_pages_off(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, scanning=False, menu=Mock(),
+            settings={'follow': False}, last_text='Read page', got_window=Mock(), target='0x123',
+            status='Waiting for the reading window')
+        subject.menu.isVisible.return_value = False
+        with patch('reader.Task') as task:
+            Reader.scan(subject)
+        task.assert_called_once()
+
+    def test_page_turn_goes_to_the_book_without_a_focus_check(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, epoch=7, target='0x123',
+            pdf_keys=lambda: None, update=Mock(), page_turn_sent=Mock())
         with patch('reader.Task') as task:
             Reader.do_page_turn(subject)
-            callback = task.call_args.args[2]
-            callback(0, self.window('0x456'), '')
         self.assertEqual(task.call_count, 1)
-        subject.scan.assert_called_once()
-
-    def test_obsolete_focus_confirmation_cannot_restart_scan(self):
-        from reader import Reader
-        subject = self.subject()
-        with patch('reader.QTimer.singleShot') as timer:
-            Reader.got_window(subject, 0, self.window('0x456'), '')
-        subject.epoch += 1
-        timer.call_args.args[1]()
-        subject.scan.assert_not_called()
+        self.assertEqual(task.call_args.args[1][-3:], ['send-key', '0x123', 'Right'])
 
     def test_deferred_page_turn_resumes_after_focus_returns(self):
         from reader import Reader

@@ -2,11 +2,16 @@
 """The desktop side of reading on GNOME, through the Screen Narrator extension's D-Bus service.
 
 Stands in for the Hyprland tools; each command prints what that tool printed:
-  active-window              hyprctl activewindow -j (address, pid, at, size, title, class)
+  active-window              hyprctl activewindow -j (address, pid, at, size, title, class,
+                             plus focused and shown: on the current workspace, not minimized)
+  window ADDRESS             the same for that window, {} once it is closed
   clients                    hyprctl clients -j
   capture X,Y WxH FILE       grim -g "X,Y WxH" FILE
+  capture-window ADDRESS X,Y WxH FILE
+                             that part of the window, even with other windows over it
   select-area                slurp: "X,Y WxH", exit 1 when cancelled
-  send-key ADDRESS KEY       a key (X keysym name) to that window, only while it has focus
+  send-key ADDRESS KEY       a key (X keysym name) to that window; it gets the focus for a
+                             moment if needed, but only when it is on the current workspace
   open-settings              the extension's settings window
 Stdlib only: it runs with the reader's Python.
 """
@@ -41,11 +46,16 @@ def main(argv):
     try:
         if command == 'active-window':
             print(call('ActiveWindow'))
+        elif command == 'window' and len(rest) == 1:
+            print(call('Window', 's', rest[0]))
         elif command == 'clients':
             print(call('Clients'))
         elif command == 'capture' and len(rest) == 2:
             if not call('Capture', 'ss', rest[0], rest[1]):
                 raise RuntimeError('Screen capture failed')
+        elif command == 'capture-window' and len(rest) == 3:
+            if not call('CaptureWindow', 'sss', *rest):
+                raise RuntimeError('The reading window is not on screen')
         elif command == 'select-area':
             area = call('SelectArea')
             if not area:
@@ -53,7 +63,7 @@ def main(argv):
             print(area)
         elif command == 'send-key' and len(rest) == 2:
             if not call('SendKey', 'ss', rest[0], rest[1]):
-                raise RuntimeError('The reading window does not have focus')
+                raise RuntimeError('The reading window is not on screen')
         elif command == 'open-settings':
             call('OpenSettings')
         else:

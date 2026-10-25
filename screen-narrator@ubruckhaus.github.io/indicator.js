@@ -107,7 +107,8 @@ class ScreenNarratorIndicator extends PanelMenu.Button {
         this.menu.addMenuItem(this._stepItem);
 
         this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
-        this._againItem = this.menu.addAction('Read again', () => this._send({command: 'read'}));
+        // Re-reads, and makes the focused window the book when it is another one.
+        this._againItem = this.menu.addAction('Read the active window', () => this._send({command: 'read'}));
         this._areaItem = this.menu.addAction('Select reading area…', () => this._send({command: 'select-area'}));
         this._clearAreaItem = this.menu.addAction('Reset reading area', () => this._send({command: 'clear-area'}));
 

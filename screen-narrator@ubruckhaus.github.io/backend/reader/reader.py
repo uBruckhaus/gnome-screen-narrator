@@ -36,6 +36,8 @@ CONFIG = HOME / '.config/kindle-reader/settings.json'
 RUNTIME = Path(os.environ.get('XDG_RUNTIME_DIR', f'/run/user/{os.getuid()}')) / 'kindle-reader'
 # The focused window, screenshots, area selection and keys come from the GNOME extension (gnome_desktop.py).
 DESKTOP = [sys.executable, str(Path(__file__).with_name('gnome_desktop.py'))]
+# Focused when reading starts, but never the book: the extension's settings window.
+NOT_BOOKS = {'org.gnome.Shell.Extensions', 'gjs'}
 QWEN_MODEL_DIR = Path(os.environ.get('QWEN_TTS_MODEL_DIR', DATA / 'models/Qwen3-TTS-1.7B'))
 VOICES = {
     'piper-custom': ('Custom Piper voice', 'piper', 'custom'),
@@ -766,11 +768,14 @@ class Reader(QObject):
             for name in ('window.png', 'ocr.png', 'ocr.txt', 'ocr.tsv', 'speech_0.txt', 'speech_0.wav', 'speech_1.txt', 'speech_1.wav'):
                 (RUNTIME / name).unlink(missing_ok=True)
 
-    def read_again(self):
+    def read_again(self, repin=False):
         print('Reader restart requested', file=sys.stderr, flush=True)
         if not self.enabled:
             self.set_enabled(True, notify=True)
         else:
+            if repin:
+                # Read the window that has the focus now instead of the pinned one.
+                self.target = ''
             self.image_candidate = self.ocr_image = None
             self.stop_speech()
             self.paused = False
@@ -909,12 +914,16 @@ class Reader(QObject):
     def scan(self):
         if getattr(self, 'testing_voice', False) or not self.enabled or self.paused or self.scanning or self.menu.isVisible():
             return
-        if not self.settings['follow'] and self.last_text:
+        if not self.settings['follow'] and self.last_text and self.status != 'Waiting for the reading window':
             return
         # Keep checking visible text during playback: manual page turns do not
         # change the window address, but invalidate queued and generated audio.
         self.scanning = True
-        Task(self, [*DESKTOP, 'active-window'], self.got_window, timeout=5)
+        if self.target:
+            # The window reading started in stays the book, wherever the focus goes.
+            Task(self, [*DESKTOP, 'window', self.target], self.got_window, timeout=5)
+        else:
+            Task(self, [*DESKTOP, 'active-window'], self.got_window, timeout=5)
 
     def check_window_focus(self, code, out, err):
         if code:
@@ -942,7 +951,14 @@ class Reader(QObject):
         try:
             window = json.loads(out)
             address = window.get('address', '')
-            if not address or window.get('pid') == os.getpid():
+            if self.target and not address:
+                # The book window was closed: reading it is over.
+                print(f'Reader target closed: {self.target}', file=sys.stderr, flush=True)
+                self.scanning = False
+                self.set_enabled(False)
+                desktop_notify('Screen Narrator', 'Stopped: the reading window was closed', timeout=2000)
+                return
+            if not address or window.get('pid') == os.getpid() or window.get('class') in NOT_BOOKS:
                 self.scanning = False
                 return
             x, y = window['at']
@@ -953,25 +969,12 @@ class Reader(QObject):
         except (ValueError, KeyError, TypeError):
             self.scanning = False
             return
+        if window.get('shown') is False:
+            # On another workspace or minimized the book stops drawing: keep reading what was
+            # captured, look again when it is back.
+            self.scanning = False
+            return
 
-        if self.target and self.target != address:
-            pending = getattr(self, 'pending_window', None)
-            now = time.monotonic()
-            if not pending or pending[0] != address:
-                self.pending_window = (address, now)
-                print(f'Confirming reader focus change: {self.target} -> {address}; '
-                      f'class={window.get("class", "")}', file=sys.stderr, flush=True)
-                remaining = 350
-            else:
-                remaining = max(0, round((.35 - (now - pending[1])) * 1000))
-            if remaining:
-                # Keep queued speech through transient focus changes. Confirm a
-                # different window before cancelling the page's audio.
-                self.scanning = False
-                epoch = self.epoch
-                QTimer.singleShot(remaining, lambda: self.scan() if self.epoch == epoch else None)
-                return
-        self.pending_window = None
         self.target_title = window.get('title', '')
         self.target_class = window.get('class', '')
         self.capture_window_geometry = (window['at'], window['size'])
@@ -1022,7 +1025,13 @@ class Reader(QObject):
         epoch = self.epoch
         def capture():
             if self.epoch == epoch:
-                Task(self, [*DESKTOP, 'capture', geom, RUNTIME / 'window.png'], self.captured, timeout=5)
+                # A chosen area is a part of the screen; otherwise the book window's own picture,
+                # so windows over it do not end up in the text.
+                if self.custom_area:
+                    args = ['capture', geom]
+                else:
+                    args = ['capture-window', self.target, geom]
+                Task(self, [*DESKTOP, *args, RUNTIME / 'window.png'], self.captured, timeout=5)
         if self.capture_highlight[2] and isinstance(self.capture_highlight[2], str) and json.loads(self.capture_highlight[2]).get('rectangles'):
             # Let the compositor present the hidden overlay before fingerprinting.
             QTimer.singleShot(35, capture)
@@ -1398,39 +1407,24 @@ class Reader(QObject):
             self.update('On — waiting for a new page')
 
     def do_page_turn(self):
-        if not self.enabled or self.paused:
+        if not self.enabled or self.paused or not self.target:
             return
-        # The delayed page turn must still belong to the focused Kindle window.
-        epoch = self.epoch
-        def focused(code, out, err):
-            if not self.enabled or self.paused or self.epoch != epoch:
-                return
-            try:
-                address = json.loads(out).get('address') if not code else None
-            except (ValueError, TypeError):
-                address = None
-            if address != self.target:
-                print('Reader page turn deferred: target is not focused', file=sys.stderr, flush=True)
-                self.update('Waiting for the reading window')
-                self.scan()
-                return
-            keys = self.pdf_keys()
-            if keys:
-                # A page that continues below the window is scrolled first; otherwise next page.
-                key = keys[1] if getattr(self, 'pdf_cut_off', False) else keys[0]
-                if not re.fullmatch(r'0x[0-9a-fA-F]{1,16}', str(address)):
-                    self.update('Waiting for the reading window')
-                    return
-                Task(self, [*DESKTOP, 'send-key', address, key], self.page_turn_sent, timeout=3)
-            else:
-                Task(self, [*DESKTOP, 'send-key', address, 'Right'], self.page_turn_sent, timeout=3)
-        Task(self, [*DESKTOP, 'active-window'], focused, timeout=3)
+        # The desktop lends the book the focus for the key when it is in the background.
+        keys = self.pdf_keys()
+        # A page that continues below the window is scrolled first; otherwise next page.
+        key = (keys[1] if getattr(self, 'pdf_cut_off', False) else keys[0]) if keys else 'Right'
+        if not re.fullmatch(r'0x[0-9a-fA-F]{1,16}', str(self.target)):
+            self.update('Waiting for the reading window')
+            return
+        Task(self, [*DESKTOP, 'send-key', self.target, key], self.page_turn_sent, timeout=3)
 
     def page_turn_sent(self, code, out, err):
         if not self.enabled or self.paused:
             return
         if code:
-            self.fail('Could not turn the page: ' + err)
+            # On another workspace or minimized: turn when it is back on screen.
+            print('Reader page turn deferred: ' + err.strip(), file=sys.stderr, flush=True)
+            self.update('Waiting for the reading window')
             return
         if self.pdf_keys():
             self.pdf_turned_at = time.monotonic()
@@ -1729,7 +1723,7 @@ class Reader(QObject):
             if command == 'on': self.set_enabled(True, notify=True)
             elif command == 'off': self.set_enabled(False, notify=True)
             elif command == 'toggle': self.set_enabled(not self.enabled, notify=True)
-            elif command == 'read': self.read_again()
+            elif command == 'read': self.read_again(repin=True)
             elif command == 'test-voice': self.test_voice()
             elif command == 'probe-provider': self.probe_provider(request['settings'])
             elif command == 'test-provider': self.test_provider(request['settings'], request.get('token'))

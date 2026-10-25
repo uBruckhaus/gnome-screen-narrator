@@ -144,7 +144,7 @@ export default class ScreenNarratorPreferences extends ExtensionPreferences {
 
         this._switches = {};
         for (const [key, title, subtitle] of [
-            ['follow', 'Follow the active window', 'Read the window that has focus, and new pages as they appear'],
+            ['follow', 'Read new pages', 'Also pages you turn yourself; off reads one page'],
             ['highlight', 'Highlight the passage being read', ''],
             ['pdf_page_area', 'Read only the page in PDF viewers', 'Document Viewer and Papers: no toolbar, sidebar or page numbers'],
             ['kindle_crop', 'Skip the Kindle toolbar and progress bar', ''],
