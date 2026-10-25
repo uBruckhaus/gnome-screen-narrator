@@ -1,0 +1,8 @@
+{
+  "uuid": "screen-narrator@ubruckhaus.github.io",
+  "name": "Screen Narrator",
+  "description": "Reads any window, PDF or Kindle page aloud, and can translate it first. Text recognition and voices run on your computer (Tesseract, Kokoro, Piper); translation uses your own llama.cpp, LM Studio or Ollama server or the offline NLLB model. Click the headphones in the top bar for Start, Pause and Stop; right-click starts or stops reading.",
+  "shell-version": ["51"],
+  "url": "https://github.com/uBruckhaus/gnome-screen-narrator",
+  "version-name": "0.1.0"
+}

@@ -1,0 +1,55 @@
+.screen-narrator-reading {
+  color: #33d17a;
+}
+
+.screen-narrator-paused {
+  color: #f6d32d;
+}
+
+.screen-narrator-status {
+  font-weight: bold;
+}
+
+.screen-narrator-controls {
+  spacing: 6px;
+}
+
+.screen-narrator-button {
+  border-radius: 8px;
+  padding: 6px 8px;
+  background-color: rgba(255, 255, 255, 0.06);
+}
+
+.screen-narrator-button:hover,
+.screen-narrator-button:focus {
+  background-color: rgba(255, 255, 255, 0.14);
+}
+
+.screen-narrator-button:insensitive {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.screen-narrator-button-box {
+  spacing: 6px;
+}
+
+.screen-narrator-step {
+  spacing: 6px;
+  max-width: 22em;
+}
+
+.screen-narrator-step-button {
+  background-color: -st-accent-color;
+  color: -st-accent-fg-color;
+}
+
+.screen-narrator-speed {
+  min-width: 3.5em;
+  text-align: right;
+}
+
+.screen-narrator-highlight {
+  border-radius: 3px;
+  background-color: rgba(255, 213, 79, 0.22);
+  border: 1px solid rgba(255, 193, 7, 0.6);
+}
