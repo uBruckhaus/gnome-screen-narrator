@@ -206,17 +206,19 @@ def install_size(code):
 
 
 def well_formed_window(window):
-    """True for {} (closed) or a window entry whose fields have the types the reader uses."""
+    """True for {} (the extension's answer for a closed window) or a window entry whose
+    fields have the types the reader uses: an address, and integer geometry as Mutter gives it."""
     if not isinstance(window, dict):
         return False
     if not window:
         return True
-    def pair(value):
+    def pair(value, low):
         return (isinstance(value, list) and len(value) == 2 and
-                all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in value))
-    return (isinstance(window.get('address', ''), str) and
+                all(type(n) is int and low <= n <= 1_000_000 for n in value))
+    address = window.get('address')
+    return (isinstance(address, str) and bool(address) and
             all(isinstance(window.get(key, ''), str) for key in ('title', 'class')) and
-            pair(window.get('at')) and pair(window.get('size')))
+            pair(window.get('at'), -1_000_000) and pair(window.get('size'), 1))
 
 
 def desktop_notify(summary, body='', icon=None, timeout=None, level='info'):
@@ -952,8 +954,9 @@ class Reader(QObject):
             return
         try:
             window = json.loads(out) if not code else None
-            # The extension answers {} once the window is closed; a failed look-up is not a close.
-            closed = isinstance(window, dict) and not window.get('address')
+            # The extension answers {} once the window is closed; a failed look-up or any
+            # other answer is not a close.
+            closed = window == {}
         except (ValueError, TypeError):
             closed = False
         if closed and self.enabled:
@@ -995,7 +998,7 @@ class Reader(QObject):
                 self.scanning = False
                 return
             address = window.get('address', '')
-            if self.target and not address:
+            if self.target and not window:
                 # The book window was closed: reading it is over.
                 self.book_closed()
                 return

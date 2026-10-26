@@ -262,7 +262,11 @@ class PinnedWindowTests(unittest.TestCase):
         answers = ['null', '[]', '"0x123"', '7', json.dumps(dict(good, title=5)),
                    json.dumps(dict(good, **{'class': ['kindle']})), json.dumps(dict(good, at=['10', 20])),
                    json.dumps(dict(good, size=[800])), json.dumps(dict(good, at=[True, 20])),
-                   json.dumps(dict(good, address=['0x123']))]
+                   json.dumps(dict(good, address=['0x123'])), '{"error": "unavailable"}',
+                   json.dumps({k: v for k, v in good.items() if k != 'address'}),
+                   json.dumps(dict(good, address='')), json.dumps(dict(good, size=[1e309, 800])),
+                   json.dumps(dict(good, size=[800.5, 600])), json.dumps(dict(good, at=[10 ** 12, 20])),
+                   json.dumps(dict(good, size=[0, 600]))]
         for out in answers:
             subject = self.subject()
             subject.book_closed = Mock()
@@ -311,6 +315,10 @@ class PinnedWindowTests(unittest.TestCase):
         task.call_args.args[2](1, '', 'The Screen Narrator extension is not running')
         subject.book_closed.assert_not_called()
         self.assertFalse(subject.scanning)
+        # Only the documented {} is a closed book, not any other answer.
+        task.call_args.args[2](0, '{"error": "unavailable"}', '')
+        task.call_args.args[2](0, 'null', '')
+        subject.book_closed.assert_not_called()
         task.call_args.args[2](0, '{}', '')
         subject.book_closed.assert_called_once()
 
