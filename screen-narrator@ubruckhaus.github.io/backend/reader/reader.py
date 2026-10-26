@@ -205,6 +205,20 @@ def install_size(code):
     return 'about ' + str(PIPER[code][4]) + ' MB' if code in PIPER else 'download'
 
 
+def well_formed_window(window):
+    """True for {} (closed) or a window entry whose fields have the types the reader uses."""
+    if not isinstance(window, dict):
+        return False
+    if not window:
+        return True
+    def pair(value):
+        return (isinstance(value, list) and len(value) == 2 and
+                all(isinstance(n, (int, float)) and not isinstance(n, bool) for n in value))
+    return (isinstance(window.get('address', ''), str) and
+            all(isinstance(window.get(key, ''), str) for key in ('title', 'class')) and
+            pair(window.get('at')) and pair(window.get('size')))
+
+
 def desktop_notify(summary, body='', icon=None, timeout=None, level='info'):
     """Send every notification through one sanitized notify-send call."""
     if level in ('warning', 'error'):
@@ -976,6 +990,10 @@ class Reader(QObject):
             return
         try:
             window = json.loads(out)
+            if not well_formed_window(window):
+                # The desktop service's answer is not a window entry: look again next time.
+                self.scanning = False
+                return
             address = window.get('address', '')
             if self.target and not address:
                 # The book window was closed: reading it is over.

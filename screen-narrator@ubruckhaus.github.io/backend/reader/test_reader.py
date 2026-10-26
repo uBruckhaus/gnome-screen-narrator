@@ -255,6 +255,23 @@ class PinnedWindowTests(unittest.TestCase):
         task.assert_not_called()
         subject.set_enabled.assert_called_once_with(False)
 
+    def test_malformed_window_answer_does_not_block_scanning(self):
+        from reader import Reader
+        import json
+        good = json.loads(self.window('0x123'))
+        answers = ['null', '[]', '"0x123"', '7', json.dumps(dict(good, title=5)),
+                   json.dumps(dict(good, **{'class': ['kindle']})), json.dumps(dict(good, at=['10', 20])),
+                   json.dumps(dict(good, size=[800])), json.dumps(dict(good, at=[True, 20])),
+                   json.dumps(dict(good, address=['0x123']))]
+        for out in answers:
+            subject = self.subject()
+            subject.book_closed = Mock()
+            with patch('reader.Task') as task:
+                Reader.got_window(subject, 0, out, '')
+            task.assert_not_called()
+            subject.book_closed.assert_not_called()
+            self.assertFalse(subject.scanning, out)
+
     def test_settings_window_is_not_pinned(self):
         from reader import Reader
         import json
