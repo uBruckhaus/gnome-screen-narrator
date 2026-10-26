@@ -249,6 +249,7 @@ class PinnedWindowTests(unittest.TestCase):
     def test_closed_book_stops_reading(self):
         from reader import Reader
         subject = self.subject()
+        subject.book_closed = lambda: Reader.book_closed(subject)
         with patch('reader.Task') as task, patch('reader.desktop_notify'):
             Reader.got_window(subject, 0, '{}', '')
         task.assert_not_called()
@@ -274,6 +275,54 @@ class PinnedWindowTests(unittest.TestCase):
         with patch('reader.Task') as task:
             Reader.scan(subject)
         task.assert_called_once()
+
+    def test_closed_book_stops_reading_with_new_pages_off(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, scanning=False, menu=Mock(),
+            settings={'follow': False}, last_text='Read page', target='0x123', status='Reading',
+            book_closed=Mock())
+        subject.menu.isVisible.return_value = False
+        subject.check_book_open = lambda *a: Reader.check_book_open(subject, *a)
+        with patch('reader.Task') as task:
+            Reader.scan(subject)
+        self.assertEqual(task.call_args.args[1][-2:], ['window', '0x123'])
+        task.call_args.args[2](0, self.window('0x123', focused=False, shown=True), '')
+        subject.book_closed.assert_not_called()
+        self.assertFalse(subject.scanning)
+        # A failed look-up is not a closed book.
+        subject.scanning = True
+        task.call_args.args[2](1, '', 'The Screen Narrator extension is not running')
+        subject.book_closed.assert_not_called()
+        self.assertFalse(subject.scanning)
+        task.call_args.args[2](0, '{}', '')
+        subject.book_closed.assert_called_once()
+
+    def test_closed_old_book_does_not_stop_a_repinned_reader(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, paused=False, scanning=False, menu=Mock(),
+            settings={'follow': False}, last_text='Read page', target='0x123', status='Reading',
+            book_closed=Mock())
+        subject.menu.isVisible.return_value = False
+        subject.check_book_open = lambda *a: Reader.check_book_open(subject, *a)
+        with patch('reader.Task') as task:
+            Reader.scan(subject)
+        subject.target = ''
+        task.call_args.args[2](0, '{}', '')
+        subject.book_closed.assert_not_called()
+        self.assertFalse(subject.scanning)
+
+    def test_read_again_repins(self):
+        from reader import Reader
+        subject = SimpleNamespace(enabled=True, target='0x123', stop_speech=Mock(), update=Mock(), scan=Mock())
+        Reader.read_again(subject, repin=True)
+        self.assertEqual(subject.target, '')
+        subject.scan.assert_called_once()
+
+    def test_read_again_menu_action_repins(self):
+        import inspect
+        from reader import Reader
+        source = inspect.getsource(Reader.__init__)
+        self.assertIn("addAction('Read active window again', lambda: self.read_again(repin=True))", source)
 
     def test_page_turn_goes_to_the_book_without_a_focus_check(self):
         from reader import Reader

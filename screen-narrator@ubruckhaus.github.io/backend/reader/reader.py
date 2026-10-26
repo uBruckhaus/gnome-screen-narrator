@@ -501,7 +501,7 @@ class Reader(QObject):
         self.status_action = self.menu.addAction('Status: Off')
         self.status_action.setEnabled(False)
         self.menu.addSeparator()
-        self.read_action = self.menu.addAction('Read active window again', self.read_again)
+        self.read_action = self.menu.addAction('Read active window again', lambda: self.read_again(repin=True))
         # Fixed label and always enabled: Launch & Bind binds entries by label and skips disabled ones.
         self.pause_action = self.menu.addAction('Pause / resume', self.pause)
         self.menu.addSeparator()
@@ -915,6 +915,12 @@ class Reader(QObject):
         if getattr(self, 'testing_voice', False) or not self.enabled or self.paused or self.scanning or self.menu.isVisible():
             return
         if not self.settings['follow'] and self.last_text and self.status != 'Waiting for the reading window':
+            if self.target:
+                # No new pages, but closing the book still ends reading.
+                self.scanning = True
+                target = self.target
+                Task(self, [*DESKTOP, 'window', target],
+                     lambda code, out, err: self.check_book_open(code, out, err, target), timeout=5)
             return
         # Keep checking visible text during playback: manual page turns do not
         # change the window address, but invalidate queued and generated audio.
@@ -924,6 +930,26 @@ class Reader(QObject):
             Task(self, [*DESKTOP, 'window', self.target], self.got_window, timeout=5)
         else:
             Task(self, [*DESKTOP, 'active-window'], self.got_window, timeout=5)
+
+    def check_book_open(self, code, out, err, target=None):
+        self.scanning = False
+        if target is not None and target != self.target:
+            # Another book was picked meanwhile (Read again): this answer is about the old one.
+            return
+        try:
+            window = json.loads(out) if not code else None
+            # The extension answers {} once the window is closed; a failed look-up is not a close.
+            closed = isinstance(window, dict) and not window.get('address')
+        except (ValueError, TypeError):
+            closed = False
+        if closed and self.enabled:
+            self.book_closed()
+
+    def book_closed(self):
+        print(f'Reader target closed: {self.target}', file=sys.stderr, flush=True)
+        self.scanning = False
+        self.set_enabled(False)
+        desktop_notify('Screen Narrator', 'Stopped: the reading window was closed', timeout=2000)
 
     def check_window_focus(self, code, out, err):
         if code:
@@ -953,10 +979,7 @@ class Reader(QObject):
             address = window.get('address', '')
             if self.target and not address:
                 # The book window was closed: reading it is over.
-                print(f'Reader target closed: {self.target}', file=sys.stderr, flush=True)
-                self.scanning = False
-                self.set_enabled(False)
-                desktop_notify('Screen Narrator', 'Stopped: the reading window was closed', timeout=2000)
+                self.book_closed()
                 return
             if not address or window.get('pid') == os.getpid() or window.get('class') in NOT_BOOKS:
                 self.scanning = False
@@ -1305,16 +1328,19 @@ class Reader(QObject):
 
         epoch = self.epoch
         def on_done(code, out, err):
-            self.overlay.show([])
             self.player = None
             self.playing_file = None
-            if not self.enabled or self.epoch != epoch:
+            if not self.enabled or self.epoch != epoch or code:
+                self.overlay.show([])
+                if code and self.enabled and self.epoch == epoch:
+                    self.queue.clear()
+                    self.fail('Audio playback failed: ' + err[-300:])
                 return
-            if code:
-                self.queue.clear()
-                self.fail('Audio playback failed: ' + err[-300:])
-            else:
-                self.pump_pipeline()
+            self.pump_pipeline()
+            if self.player is None:
+                # No next chunk ready: clear. A started one has already shown
+                # its passage, so the highlight moves without a blank in between.
+                self.overlay.show([])
 
         self.player = self.speech_task(args, on_done, timeout=600)
         self.overlay.show(self.audio_highlights.pop(wav_file, []) if self.settings['highlight'] else [], self.target)

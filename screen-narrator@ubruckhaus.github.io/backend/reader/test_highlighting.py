@@ -47,6 +47,51 @@ class HighlightTests(unittest.TestCase):
         self.assertEqual(subject.capture_area, (200, 328, 700, 512))
         self.assertEqual(task.call_args.args[1][-2], '200,328 700x512')
 
+    def playing_subject(self):
+        from reader import Reader
+        subject = SimpleNamespace(
+            settings={'audio_output': 'auto', 'speed': 1.0, 'highlight': True}, paused=False,
+            enabled=True, epoch=0, target='0x123', overlay=Mock(), queue=[], update=Mock(),
+            audio_highlights={'a.wav': [dict(x=1, y=2, width=3, height=4)]}, fail=Mock())
+        done = {}
+        def speech_task(args, on_done, timeout):
+            done['callback'] = on_done
+            return object()
+        subject.speech_task = speech_task
+        subject.pump_pipeline = Mock()
+        subject.start_player = lambda wav: Reader.start_player(subject, wav)
+        with patch('reader.playback_output', return_value='auto'):
+            Reader.start_player(subject, 'a.wav')
+        subject.overlay.show.reset_mock()
+        return subject, done['callback']
+
+    def test_next_chunk_moves_highlight_without_blank(self):
+        subject, on_done = self.playing_subject()
+        subject.audio_highlights['b.wav'] = [dict(x=5, y=6, width=7, height=8)]
+        pending = ['b.wav']
+        def pump():
+            if pending:  # start_player pumps again for look-ahead: start b only once.
+                with patch('reader.playback_output', return_value='auto'):
+                    subject.start_player(pending.pop())
+        subject.pump_pipeline.side_effect = pump
+        on_done(0, '', '')
+        shown = [c.args[0] for c in subject.overlay.show.call_args_list]
+        self.assertEqual(shown, [[dict(x=5, y=6, width=7, height=8)]])
+
+    def test_last_chunk_clears_highlight(self):
+        subject, on_done = self.playing_subject()
+        subject.pump_pipeline.side_effect = lambda: None
+        on_done(0, '', '')
+        subject.overlay.show.assert_called_once_with([])
+
+    def test_failed_playback_clears_and_reports(self):
+        subject, on_done = self.playing_subject()
+        subject.queue = ['x']
+        on_done(1, '', 'boom')
+        subject.overlay.show.assert_called_once_with([])
+        self.assertEqual(subject.queue, [])
+        subject.fail.assert_called_once()
+
     def test_kindle_headroom_stays_inside_window(self):
         from reader import Reader
         subject = SimpleNamespace(
